@@ -2,20 +2,94 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="theme-color" content="#6550bb">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="스마트 교무실">
 <title>교무실 — 개념기반 수업·문해력 설계</title>
 <script>
 (function(){
- const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="115" fill="#6550bb"/><path d="M256 128L96 208l160 80 160-80-160-80zM96 288l160 80 160-80M96 352l160 80 160-80" stroke="#fff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`;
- const iconUrl="data:image/svg+xml;utf8,"+encodeURIComponent(svg);
- const appleLink=document.createElement("link");appleLink.rel="apple-touch-icon";appleLink.href=iconUrl;document.head.appendChild(appleLink);
- const favLink=document.createElement("link");favLink.rel="icon";favLink.href=iconUrl;document.head.appendChild(favLink);
- const manifest={name:"스마트 교무실 — 수업·학급·문해력",short_name:"교무실",description:"개념기반 수업 설계 및 시간표 연동 스마트 교무실",start_url:"./",display:"standalone",background_color:"#f7f8fb",theme_color:"#6550bb",icons:[{src:iconUrl,sizes:"512x512",type:"image/svg+xml",purpose:"any maskable"}]};
- const mLink=document.createElement("link");mLink.rel="manifest";mLink.href="data:application/manifest+json;charset=utf-8,"+encodeURIComponent(JSON.stringify(manifest));document.head.appendChild(mLink);
+  // 1) 아이폰(Safari) 및 안드로이드(Chrome/삼성인터넷) 호환을 위해 Canvas로 PNG 아이콘 즉시 생성
+  function createAppIconPNG(size, maskable){
+    try{
+      const c = document.createElement("canvas");
+      c.width = c.height = size;
+      const ctx = c.getContext("2d");
+      const r = maskable ? 0 : Math.round(size * 0.22);
+      ctx.fillStyle = "#6550bb";
+      ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(0, 0, size, size, r);
+      else ctx.rect(0, 0, size, size);
+      ctx.fill();
+
+      const s = size / 512;
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 36 * s;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      ctx.beginPath();
+      ctx.moveTo(256*s, 128*s); ctx.lineTo(96*s, 208*s); ctx.lineTo(256*s, 288*s); ctx.lineTo(416*s, 208*s); ctx.closePath();
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(96*s, 288*s); ctx.lineTo(256*s, 368*s); ctx.lineTo(416*s, 288*s);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(96*s, 352*s); ctx.lineTo(256*s, 432*s); ctx.lineTo(416*s, 352*s);
+      ctx.stroke();
+      return c.toDataURL("image/png");
+    }catch(e){
+      return "";
+    }
+  }
+
+  const icon180 = createAppIconPNG(180, false);
+  const icon192 = createAppIconPNG(192, false);
+  const icon512 = createAppIconPNG(512, false);
+  const icon512Mask = createAppIconPNG(512, true);
+
+  // 아이폰·아이패드 홈 화면 아이콘 (PNG 필수)
+  const appleLink = document.createElement("link");
+  appleLink.rel = "apple-touch-icon";
+  appleLink.sizes = "180x180";
+  appleLink.href = icon180 || icon192;
+  document.head.appendChild(appleLink);
+
+  const favLink = document.createElement("link");
+  favLink.rel = "icon";
+  favLink.type = "image/png";
+  favLink.href = icon192;
+  document.head.appendChild(favLink);
+
+  // 안드로이드(갤럭시) 크롬·삼성인터넷 설치 규격 충족용 절대경로 Manifest
+  const cleanUrl = window.location.href.split("#")[0];
+  const baseScope = window.location.origin + window.location.pathname.replace(/[^/]*$/, "");
+  const manifest = {
+    id: cleanUrl,
+    name: "스마트 교무실 — 수업·학급·문해력",
+    short_name: "스마트 교무실",
+    description: "개념기반 수업 설계 및 시간표 연동 스마트 교무실",
+    lang: "ko-KR",
+    start_url: cleanUrl,
+    scope: baseScope,
+    display: "standalone",
+    orientation: "any",
+    background_color: "#f7f8fb",
+    theme_color: "#6550bb",
+    icons: [
+      { src: icon192, sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: icon512, sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: icon512Mask, sizes: "512x512", type: "image/png", purpose: "maskable" }
+    ]
+  };
+  const mLink = document.createElement("link");
+  mLink.rel = "manifest";
+  mLink.href = "data:application/manifest+json;charset=utf-8," + encodeURIComponent(JSON.stringify(manifest));
+  document.head.appendChild(mLink);
 })();
 </script>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -51,16 +125,32 @@ window.addEventListener("unhandledrejection",function(e){
 </script>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#f7f8fb;color:#262635}
+html,body{
+ margin:0;
+ background:#f7f8fb;
+ color:#262635;
+ /* 한글 어절 중간 걸침(단어 쪼개짐) 원천 방지 */
+ word-break:keep-all;
+ overflow-wrap:break-word;
+ -webkit-text-size-adjust:100%;
+}
+/* 버튼·메뉴·배지·표 헤더에서 단어가 두 줄로 어색하게 꺾이는 현상 방지 */
+button, nav a, nav button, th, label, .tag-badge{
+ word-break:keep-all;
+}
+aside nav button{
+ white-space:nowrap;
+ letter-spacing:-0.015em;
+}
 :is(button,a,input,select,textarea,summary):focus-visible{outline:2px solid #6550bb;outline-offset:3px}
 button:disabled{opacity:.5;cursor:not-allowed}
 button,input,select,textarea,a{-webkit-tap-highlight-color:transparent}
 input[type=checkbox]{accent-color:#6550bb}
-.prose-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.9}
+.prose-text{white-space:pre-wrap;overflow-wrap:anywhere;word-break:keep-all;line-height:1.9}
 pre{white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:767px){
  input,select,textarea{font-size:16px!important}
- body{padding-bottom:74px}
+ body{padding-bottom:calc(78px + env(safe-area-inset-bottom, 0px))}
 }
 .no-scrollbar::-webkit-scrollbar{display:none}
 .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
@@ -373,10 +463,10 @@ function initialData(){
   classAttendance:{},
   electiveMatrix:{headers:["A타임","B타임","C타임","D타임"],rows:[],periodSlotMap:{}},
   schoolMasterData:{
-   teachers:{},classTimetables:{},homeroomRosters:{},electiveRosters:{},homeroomTeachers:{},
+   teachers:{},classTimetables:{},homeroomRosters:{},electiveRosters:{},homeroomTeachers:{},electiveRooms:{},
    effectiveDate:day(),
    versions:[],
-   schoolConfig:{g1:7,g2:7,g3:7,slots:"A,B,C,D"},
+   schoolConfig:{g1:7,g2:7,g3:7,slots:"A,B,C,D",specialRooms:"사회과실,미술실,음악실,과학실1,과학실2,정보실,시청각실,특별실1,특별실2"},
    updatedAt:""
   },
   seating:{totalSeats:12,pairMode:"pair",pairBundan:3,singleCols:5,frontMaxRow:1,frontRules:{},avoidPairs:"",arrangement:[],teacherView:false},
@@ -1910,15 +2000,43 @@ function analyzeMinwonMedia(){
  }
 
  const [hideInstallForever, setHideInstallForever] = useState(() => localStorage.getItem("gyomusil-install-guide-hide") === "1");
+ const [installTab, setInstallTab] = useState("auto"); // "auto" | "galaxy" | "iphone" | "pc"
+
  const detectedOS = (() => {
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
   const isKakao = /KAKAOTALK/i.test(ua);
+  const isNaver = /NAVER/i.test(ua);
+  const isBand = /BAND\//i.test(ua);
+  const isInsta = /Instagram|FBAN|FBAV/i.test(ua);
+  const isEverytimeOrLine = /Line\/|Everytime/i.test(ua);
+  const isInApp = isKakao || isNaver || isBand || isInsta || isEverytimeOrLine;
+
   const isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const isAndroid = /Android/i.test(ua);
+  const isSamsungBrowser = /SamsungBrowser/i.test(ua);
+  const isCriOS = /CriOS/i.test(ua); // 아이폰 크롬 앱
   const isMac = /Macintosh|MacIntel|MacPPC|Mac68K/i.test(ua) && !isIOS;
   const isWin = /Win32|Win64|Windows|WinCE/i.test(ua);
-  return { isKakao, isIOS, isAndroid, isMac, isWin, primary: isIOS ? "ios" : isAndroid ? "android" : isMac ? "mac" : "win" };
+  const isStandalone = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator?.standalone === true);
+
+  return {
+   isKakao, isNaver, isBand, isInApp,
+   isIOS, isAndroid, isSamsungBrowser, isCriOS,
+   isMac, isWin, isStandalone,
+   primary: isIOS ? "ios" : isAndroid ? "android" : isMac ? "mac" : "win"
+  };
  })();
+
+ // 안드로이드 인앱 브라우저(카톡/밴드/네이버 등)에서 크롬 외부 브라우저로 즉시 탈출시키는 헬퍼
+ function openInExternalBrowser(){
+  const currentUrl = window.location.href;
+  if(detectedOS.isAndroid){
+   const noProtocol = currentUrl.replace(/^https?:\/\//i, "");
+   window.location.href = `intent://${noProtocol}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
+  } else {
+   copy(currentUrl).then(() => notify("주소를 복사했습니다! Safari(사파리) 앱을 열어 주소창에 붙여넣어 주세요."));
+  }
+ }
 
  useEffect(()=>{
   const handler = e => { e.preventDefault(); setDeferredPrompt(e); };
@@ -2154,13 +2272,30 @@ function analyzeMinwonMedia(){
   return null;
  }
 
+ // 현재 시각(쉬는 시간 15분 전 포함)을 기준으로 해당 교시를 찾아내는 헬퍼
+ function getCurrentSchoolPeriod(now = new Date()){
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const toM = str => { const [h, m] = str.split(":").map(Number); return h * 60 + m; };
+  // 1순위: 현재 수업 시간 중이거나 수업 시작 15분 전(쉬는 시간)인 교시
+  for(const pt of FIXED_PERIOD_TIMES){
+   const s = toM(pt.start), e = toM(pt.end);
+   if(mins >= s - 15 && mins <= e) return pt;
+  }
+  // 2순위: 점심시간(12:50~13:45)에는 5교시 준비로 연결
+  if(mins > toM("12:50") && mins < toM("14:00")){
+   return FIXED_PERIOD_TIMES.find(p => p.period === 5) || FIXED_PERIOD_TIMES[0];
+  }
+  return null;
+ }
+
  function detectCurrentClass(d = live.current){
   const now = new Date();
   const dayNames = ["일","월","화","수","목","금","토"];
   const todayName = dayNames[now.getDay()];
   const todayDate = day();
-  const hm = String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
-  const foundPeriod = FIXED_PERIOD_TIMES.find(p => hm >= p.start && hm <= p.end);
+  const foundPeriod = getCurrentSchoolPeriod(now);
+  const firstSubjectClassId = (d.subjectClasses || []).find(c => c.id !== "homeroom")?.id || (d.profile?.homeroom ? "homeroom" : "");
+
   if(foundPeriod){
    setActivePeriod(foundPeriod.period);
    const override = getActiveSwapOverride(todayDate, foundPeriod.period);
@@ -2169,12 +2304,14 @@ function analyzeMinwonMedia(){
     return {period:foundPeriod.period, classId:override.classId, auto:true, dayName:todayName, override};
    }
    const scheduledId = d.timetable?.[`${todayName}-${foundPeriod.period}`];
-   if(scheduledId && (scheduledId==="homeroom" || (d.subjectClasses||[]).some(c=>c.id===scheduledId))){
+   if(scheduledId && ((scheduledId==="homeroom" && d.profile?.homeroom) || (d.subjectClasses||[]).some(c=>c.id===scheduledId))){
     setActiveClassId(scheduledId);
     return {period:foundPeriod.period, classId:scheduledId, auto:true, dayName:todayName};
    }
   }
-  return {period:foundPeriod?.period||activePeriod, classId:activeClassId, auto:false, dayName:todayName};
+  const fallbackId = (!d.profile?.homeroom && activeClassId === "homeroom") ? firstSubjectClassId : activeClassId;
+  if(fallbackId && fallbackId !== activeClassId) setActiveClassId(fallbackId);
+  return {period:foundPeriod?.period||activePeriod, classId:fallbackId, auto:false, dayName:todayName};
  }
  
  // ============================================================================
@@ -2553,7 +2690,31 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
   const [academicEffectiveDate, setAcademicEffectiveDate] = useState(() => day());
   const [replaceFutureAcademicOnly, setReplaceFutureAcademicOnly] = useState(true);
   const [masterEffectiveDate, setMasterEffectiveDate] = useState(() => day());
-  const [templateConfig, setTemplateConfig] = useState({ g1: 7, g2: 7, g3: 7, slots: "A,B,C,D" });
+const [templateConfig, setTemplateConfig] = useState({
+   g1: 7, g2: 7, g3: 7,
+   slots: "A,B,C,D,E,F,G,H,I,J,K,L,M",
+   specialRooms: "사회과실,미술실,음악실,과학실1,과학실2,정보실,시청각실,특별실1,특별실2"
+  });
+  const [regIsHomeroom, setRegIsHomeroom] = useState(true); // 가입 화면 담임교사 체크 상태
+  const DEFAULT_NAV_ORDER = ["나의 교무실", "수업 설계·문해력", "학급·수업 운영", "수업·업무 지원 · AI"];
+  const [navOrder, setNavOrder] = useState(() => {
+   try {
+    const saved = JSON.parse(localStorage.getItem("gyomusil-nav-order") || "[]");
+    if(Array.isArray(saved) && DEFAULT_NAV_ORDER.every(k => saved.includes(k))) return saved;
+   } catch {}
+   return DEFAULT_NAV_ORDER;
+  });
+  function moveNavCategory(idx, dir){
+   setNavOrder(prev => {
+    const next = [...prev];
+    const targetIdx = idx + dir;
+    if(targetIdx < 0 || targetIdx >= next.length) return prev;
+    [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+    try { localStorage.setItem("gyomusil-nav-order", JSON.stringify(next)); } catch {}
+    return next;
+   });
+  }
+
   const [studentLeaveType, setStudentLeaveType] = useState("전출");
   const [studentLeaveDate, setStudentLeaveDate] = useState(() => day());
   const [uploadReport, setUploadReport] = useState(null);
@@ -2579,7 +2740,146 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
    followUp: ""
   }));
 
-  // 학교별 학년·반 수 및 선택과목 타임 설정에 맞춘 통합 표준 엑셀(.xlsx) 양식 생성기 (전교생 학급명렬 + 선택과목 + 시간표 + 담임배정 일원화)
+  // [선택과목 수업 장소 시트(2학년/3학년 분리) 최우선 매칭 헬퍼]
+  // 과목명 뒤의 인원수 '(20)'나 '(원)' 등을 떼어내고 순수 과목명+분반코드로 정규화하여 장소를 찾습니다.
+  function cleanElectiveSubjToken(raw){
+   return String(raw || "")
+    .replace(/\(\s*\d+\s*명?\s*\)/g, "") // (20), (25명) 제거
+    .replace(/\(원\)/g, "")
+    .replace(/[∙·・\s]/g, "")
+    .trim();
+  }
+
+  function resolveElectiveRoomOverride(subjRaw, teacherName, fallbackRoom, electiveRooms){
+   if(!isObj(electiveRooms) || Object.keys(electiveRooms).length === 0) return fallbackRoom;
+   const normSubj = cleanElectiveSubjToken(subjRaw);
+   const normSubjNoZero = normSubj.replace(/([A-Z])0$/i, "$1");
+   const cleanT = cleanMasterLabel(String(teacherName || "").replace(/\(원\)/g, "").trim());
+   if(!normSubj) return fallbackRoom;
+
+   // 1순위: [과목명 + 담당교사명] 동시 일치
+   if(cleanT){
+    if(electiveRooms[`${normSubj}|${cleanT}`]) return electiveRooms[`${normSubj}|${cleanT}`];
+    if(electiveRooms[`${normSubjNoZero}|${cleanT}`]) return electiveRooms[`${normSubjNoZero}|${cleanT}`];
+   }
+   // 2순위: [과목명] 단독 일치 (예: 미적분A, 심화국어B0, 화학ⅡG0 등)
+   if(electiveRooms[normSubj]) return electiveRooms[normSubj];
+   if(electiveRooms[normSubjNoZero]) return electiveRooms[normSubjNoZero];
+
+   // 3순위: 등록된 키들과 정규화 비교
+   for(const [k, roomVal] of Object.entries(electiveRooms)){
+    if(k.includes("|")){
+     const [kSubj, kTeach] = k.split("|");
+     const kSubjNoZero = kSubj.replace(/([A-Z])0$/i, "$1");
+     if((kSubj === normSubj || kSubjNoZero === normSubjNoZero) && (!cleanT || kTeach === cleanT)) return roomVal;
+    } else {
+     const kNoZero = k.replace(/([A-Z])0$/i, "$1");
+     if(k === normSubj || kNoZero === normSubjNoZero) return roomVal;
+    }
+   }
+   return fallbackRoom;
+  }
+
+  // 사진과 동일한 형식의 [2학년_선택과목장소], [3학년_선택과목장소] 시트 파서
+  // 헤더의 '1(장월규)', '2(제갈은화)'는 해당 학년의 '2-1', '2-2' (또는 '3-1', '3-2') 교실로 자동 인식하고, 우측 특별실 열까지 여유 있게 읽어들입니다.
+  function parseElectiveRoomGridSheet(rows, gradeNum = 2){
+   const map = {};
+   if(!Array.isArray(rows) || rows.length < 3) return map;
+
+   // 상단 6행 이내에서 '1(교사명)' 또는 '1반' 등이 나열된 헤더 행을 찾음
+   let colRoomMap = {}; // { colIdx: "2-1" | "사회과실" | "미술실" ... }
+   let headerEndRow = 0;
+
+   for(let r = 0; r < Math.min(6, rows.length); r++){
+    const row = (rows[r] || []).map(x => String(x ?? "").trim());
+    let matchedCols = 0;
+    const tempCols = {};
+    for(let c = 1; c < row.length; c++){
+     const cell = row[c];
+     if(!cell) continue;
+     // '1(장월규)', '1 (장월규)', '1반(장월규)', '1반', '2-1' 형태 -> 모두 `${gradeNum}-${반번호}`로 변환!
+     const clsMatch = cell.match(/^([1-3])?\s*[-학년]*\s*0?(\d{1,2})\s*반?\s*(?:\([^)]*\))?$/);
+     if(clsMatch){
+      const g = clsMatch[1] ? Number(clsMatch[1]) : gradeNum;
+      const clsNum = Number(clsMatch[2]);
+      if(clsNum >= 1 && clsNum <= 25){
+       tempCols[c] = `${g}-${clsNum}`;
+       matchedCols++;
+       continue;
+      }
+     }
+     // 특별실 열 인식 (예: 사회과실, 미술실, 음악실, 특별실, 과학실 등)
+     if(!/^(반별인원|선택과목\s*최대인원|최대인원|실수업|\d+)$/.test(cell)){
+      tempCols[c] = cell;
+      matchedCols++;
+     }
+    }
+    if(matchedCols >= 2){
+     // 바로 위 행이나 아래 행에 특별실 세부 명칭(예: 위 행에 '사회과실', 아래 행에 '특별실')이 함께 적힌 경우 보강
+     const prevRow = r > 0 ? (rows[r - 1] || []).map(x => String(x ?? "").trim()) : [];
+     const nextRow = r + 1 < rows.length ? (rows[r + 1] || []).map(x => String(x ?? "").trim()) : [];
+     const maxC = Math.max(row.length, prevRow.length, nextRow.length);
+     for(let c = 1; c < maxC; c++){
+      if(tempCols[c] && /^[1-3]-\d+$/.test(tempCols[c])) continue;
+      const topTxt = prevRow[c] || "";
+      const curTxt = row[c] || "";
+      const botTxt = nextRow[c] || "";
+      if(topTxt && curTxt && topTxt !== curTxt && !/^\d+$/.test(curTxt)){
+       tempCols[c] = topTxt; // 예: 위에 '사회과실', 아래에 '특별실'이면 '사회과실' 우선 사용
+      } else if(!tempCols[c] && topTxt && !/^(실수업|반별인원)$/.test(topTxt)){
+       tempCols[c] = topTxt;
+      } else if(!tempCols[c] && botTxt && !/^(반별인원|선택과목\s*최대인원|\d+)$/.test(botTxt)){
+       tempCols[c] = botTxt;
+      }
+     }
+     colRoomMap = tempCols;
+     headerEndRow = r + 1;
+     break;
+    }
+   }
+
+   if(Object.keys(colRoomMap).length === 0) return map;
+
+   // 데이터 행 스캔: '반별인원', '선택과목 최대인원' 행은 건너뛰고 A, B, C... 타임의 [과목명(인원)] 행과 아래 [담당교사명] 행을 매칭
+   for(let r = headerEndRow; r < rows.length; r++){
+    const row = (rows[r] || []).map(x => String(x ?? "").trim());
+    const firstCell = row[0] || "";
+    if(/반별인원|최대인원/.test(firstCell)) continue;
+
+    const nextRow = r + 1 < rows.length ? (rows[r + 1] || []).map(x => String(x ?? "").trim()) : [];
+
+    Object.entries(colRoomMap).forEach(([cStr, roomLabel]) => {
+     const c = Number(cStr);
+     const cellVal = row[c] || "";
+     if(!cellVal || /^\d+$/.test(cellVal)) return;
+
+     // 과목명 행 판별: 예) '미적분A(20)', '화법과작문A0(26)', '미술감상과비평K', '심화영어ⅠA(28)'
+     // (다음 행 같은 열에 교사 이름이 있거나, 괄호 안 숫자 '(20)'가 있거나, 끝에 타임 알파벳 A~N이 붙은 과목명인 경우)
+     const hasCountParen = /\(\s*\d+\s*명?\s*\)/.test(cellVal);
+     const cleanedSubj = cleanElectiveSubjToken(cellVal);
+     const belowCell = (nextRow[c] || "").replace(/\(원\)/g, "").trim();
+     const isBelowTeacherName = /^[가-힣]{2,5}$/.test(belowCell) && !/(\(\d+\)|[A-N]0?$)/.test(belowCell);
+
+     if(cleanedSubj.length >= 2 && (hasCountParen || isBelowTeacherName || /[A-N]0?$/i.test(cleanedSubj))){
+      // 교사 이름 단독 행이 과목으로 오인되지 않도록 필터링
+      if(!hasCountParen && !isBelowTeacherName && /^[가-힣]{2,4}$/.test(cleanedSubj) && !/[A-N]0?$/i.test(cleanedSubj)) return;
+
+      map[cleanedSubj] = roomLabel;
+      const noZero = cleanedSubj.replace(/([A-Z])0$/i, "$1");
+      if(!map[noZero]) map[noZero] = roomLabel;
+
+      if(isBelowTeacherName){
+       map[`${cleanedSubj}|${belowCell}`] = roomLabel;
+       map[`${noZero}|${belowCell}`] = roomLabel;
+      }
+     }
+    });
+   }
+   return map;
+  }
+
+  // 학교별 학년·반 수 및 선택과목 타임 설정에 맞춘 통합 표준 엑셀(.xlsx) 양식 생성기
+  // (전교생 학급명렬 + 선택과목 + 시간표 + 담임배정 + [2학년_선택과목장소] + [3학년_선택과목장소] 시트 포함)
   function downloadCustomSchoolStandardExcel(){
    if(!window.XLSX){
     notify("엑셀 생성 라이브러리를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
@@ -2589,7 +2889,8 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
    const g1Cnt = Math.max(1, Math.min(20, Number(templateConfig.g1) || 7));
    const g2Cnt = Math.max(1, Math.min(20, Number(templateConfig.g2) || 7));
    const g3Cnt = Math.max(1, Math.min(20, Number(templateConfig.g3) || 7));
-   const slotList = String(templateConfig.slots || "A,B,C,D").split(",").map(s => s.trim()).filter(Boolean);
+   const slotList = String(templateConfig.slots || "A,B,C,D,E,F,G,H,I,J,K,L,M").split(",").map(s => s.trim()).filter(Boolean);
+   const specialRoomCols = String(templateConfig.specialRooms || "사회과실,미술실,음악실,과학실1,과학실2,정보실,시청각실,특별실1,특별실2").split(",").map(s => s.trim()).filter(Boolean);
 
    const allDepts = [
     ...Array.from({length: g1Cnt}, (_, i) => `1-${i+1}`),
@@ -2626,8 +2927,8 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
    const ws2 = window.XLSX.utils.aoa_to_sheet(sheet2Rows);
    window.XLSX.utils.book_append_sheet(wb, ws2, "전체시간표(학급별)");
 
-   // 시트 3: 전교생_명단_및_선택과목 (1~3학년 전체 학급 명단 자동 분류 + 선택과목 분반 자동 생성 통합 시트)
-   const sheet3Header = ["학번", "학년", "반", "번호", "이름", ...slotList, "학생연락처(선택)", "보호자연락처(선택)"];
+   // 시트 3: 전교생_명단_및_선택과목
+   const sheet3Header = ["학번", "학년", "반", "번호", "이름", ...slotList.slice(0, 13), "학생연락처(선택)", "보호자연락처(선택)"];
    const sheet3Rows = [sheet3Header];
    const existingHrRosters = data.schoolMasterData?.homeroomRosters || {};
    const existingMatrixRows = data.electiveMatrix?.rows || [];
@@ -2644,7 +2945,7 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
        c,
        st.number,
        st.name,
-       ...slotList.map(sl => mx?.choices?.[sl] || ""),
+       ...slotList.slice(0, 13).map(sl => mx?.choices?.[sl] || ""),
        st.phone || "",
        st.parentPhone || ""
       ]);
@@ -2657,7 +2958,7 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
       c,
       1,
       `${dept}학생1`,
-      ...slotList.map(sl => g === 1 ? "" : `${sl}타임선택과목명`),
+      ...slotList.slice(0, 13).map(sl => g === 1 ? "" : `${sl}타임선택과목명`),
       "",
       ""
      ]);
@@ -2675,8 +2976,51 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
    const ws4 = window.XLSX.utils.aoa_to_sheet(sheet4Rows);
    window.XLSX.utils.book_append_sheet(wb, ws4, "담임교사배정표");
 
-   window.XLSX.writeFile(wb, `${data.profile.school || "학교"}_통합마스터_표준양식(전교생명단_시간표_선택과목_담임배정).xlsx`);
-   notify(`전교생 학급명단·선택과목·시간표·담임배정이 하나로 통합된 표준 엑셀 양식을 내려받았습니다!`);
+   // 시트 5 & 시트 6: [2학년_선택과목장소], [3학년_선택과목장소] (첨부 이미지와 동일한 실수업 표 양식 + 특별실 여유 열 포함)
+   const buildElectiveRoomSheet = (gradeNum, classCount) => {
+    const classHeaders = Array.from({length: classCount}, (_, i) => {
+     const dept = `${gradeNum}-${i+1}`;
+     const hrTeacher = hrMap[dept] || `${i+1}반담임`;
+     return `${i+1}(${hrTeacher})`; // 예: 1(장월규), 2(제갈은화) — 괄호 안 성함은 무시하고 해당 학년 1반, 2반으로 자동 인식됨!
+    });
+    const rows = [
+     ["실수업", ...classHeaders, ...specialRoomCols],
+     ["반별인원", ...Array(classCount).fill(26), ...Array(specialRoomCols.length).fill("")],
+     ["선택과목 최대인원", ...Array(classCount).fill(30), ...Array(specialRoomCols.length).fill("")]
+    ];
+    slotList.forEach((sl, sIdx) => {
+     const isSampleFirst = sIdx === 0;
+     // 첫 줄: 과목명(인원수) 행
+     rows.push([
+      sl,
+      ...Array.from({length: classCount}, (_, cIdx) => {
+       if(!isSampleFirst) return "";
+       return gradeNum === 3
+        ? (["미적분A(20)","문학과매체A(25)","영어권문화A(26)","기하A(31)","심화영어ⅠA(28)","영미문학읽기A(22)","화법과작문A0(26)"][cIdx] || "")
+        : (["윤리와사상A(25)","세계지리A(24)","물리학ⅠA(26)","화학ⅠA(28)","생명과학ⅠA(27)","지구과학ⅠA(25)","정치와법A(24)"][cIdx] || "");
+      }),
+      ...specialRoomCols.map((_, spIdx) => (isSampleFirst && spIdx === 0 ? `특별실과목${sl}(15)` : ""))
+     ]);
+     // 둘째 줄: 담당교사 성함 행
+     rows.push([
+      "",
+      ...Array.from({length: classCount}, (_, cIdx) => {
+       if(!isSampleFirst) return "";
+       return gradeNum === 3
+        ? (["제갈은화","위인용","백지선","이지은","이다은","박미진(원)","정민"][cIdx] || "")
+        : (["김교사","이교사","박교사","최교사","정교사","강교사","조교사"][cIdx] || "");
+      }),
+      ...specialRoomCols.map((_, spIdx) => (isSampleFirst && spIdx === 0 ? "담당교사명" : ""))
+     ]);
+    });
+    return window.XLSX.utils.aoa_to_sheet(rows);
+   };
+
+   window.XLSX.utils.book_append_sheet(wb, buildElectiveRoomSheet(2, g2Cnt), "2학년_선택과목장소");
+   window.XLSX.utils.book_append_sheet(wb, buildElectiveRoomSheet(3, g3Cnt), "3학년_선택과목장소");
+
+   window.XLSX.writeFile(wb, `${data.profile.school || "학교"}_통합마스터_표준양식(전교생명단_시간표_선택과목_2·3학년수업장소).xlsx`);
+   notify(`2학년·3학년 선택과목 수업장소 시트(실수업 표 양식)가 포함된 통합 표준 엑셀 양식을 내려받았습니다!`);
   }
 
   async function applyImportedAcademicEvents(parsedEvents, forceSchoolBroadcast = false){
@@ -2699,7 +3043,6 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
    let finalSharedAcademicList = normalizedSharedEvents;
 
    update(d => {
-    // 기준일자(effDate) 이후의 기존 '학교학사력'/'학사일정'만 교체하고, 기준일자 이전 과거 학사일정과 개인 일정은 보존
     const baseEvents = (d.events || []).filter(e => {
      if(replaceFutureAcademicOnly && ["학교학사력","학사일정"].includes(e.category) && e.date >= effDate){
       return false;
@@ -2739,7 +3082,6 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
   if(!file) return;
   try {
    const ext = file.name.split(".").pop()?.toLowerCase() || "";
-   // 1) 엑셀(.xlsx, .xls) 또는 CSV 파일
    if(["xlsx","xls","csv"].includes(ext)){
     if(ext === "csv"){
      const txt = await file.text();
@@ -2760,8 +3102,6 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
     applyImportedAcademicEvents(evs);
     return;
    }
-
-   // 2) 한글(.hwpx, .hwp, .txt) 파일 또는 PDF 파일
    if(["txt","hwp","hwpx"].includes(ext)){
     const rawText = await file.text();
     const cleanLines = rawText.replace(/<[^>]+>/g, "\n").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -2778,19 +3118,18 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
   }
  }
 
-// 1) [기준일자 버전 관리 및 전교생 명렬·선택과목·시간표 통합 지원] 마스터 엑셀(.xlsx) 일괄 업로드 및 전교 배포
+// 1) [기준일자 버전 관리 + 2·3학년 선택과목 수업장소 시트 최우선 오버라이드 지원] 마스터 엑셀(.xlsx) 일괄 업로드 및 전교 배포
   async function handleSchoolMasterExcelUpload(file){
    if(!file) return;
    if(!window.XLSX){ notify("엑셀 분석 라이브러리를 불러오는 중입니다. 잠시 후 다시 시도해 주세요."); return; }
    const effDate = validDate(masterEffectiveDate) ? masterEffectiveDate : day();
    sharedLockRef.current = true;
-   setBusy(`[${file.name}]에서 기준일자(${effDate}) 전교생 학급 명단·선택과목·시간표·담임배정을 분석하여 배포 중...`);
+   setBusy(`[${file.name}]에서 기준일자(${effDate}) 전교생 명단·선택과목·시간표·2/3학년 선택과목 장소를 분석하여 배포 중...`);
    setError("");
    try {
     const buf = await file.arrayBuffer();
     const wb = window.XLSX.read(buf, { type: "array", raw: false });
 
-    // 기존 학생의 전학/자퇴(leaveType) 상태 보존
     const prevHrRosters = live.current.schoolMasterData?.homeroomRosters || {};
     const prevLeaveMap = {};
     Object.entries(prevHrRosters).forEach(([deptKey, stuArr]) => {
@@ -2805,9 +3144,24 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
     const teachersSchedule = {};
     const classTimetables = {};
     const homeroomTeachers = { ...(live.current.schoolMasterData?.homeroomTeachers || {}) };
+    const electiveRooms = { ...(live.current.schoolMasterData?.electiveRooms || {}) };
     const matrixRows = [];
     const slotHeaderSet = new Set(live.current.electiveMatrix?.headers || []);
 
+    // ★ 1단계: 시트 중 [2학년_선택과목장소], [3학년_선택과목장소] 또는 '실수업' 표가 있는 시트를 먼저 스캔하여 선택과목별 실제 수업장소 맵 구축!
+    for(const sheetName of wb.SheetNames){
+     const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "", raw: false });
+     if(rows.length < 3) continue;
+     const topCellsText = rows.slice(0, 4).flat().map(x => String(x ?? "").trim()).join(" ");
+     const isRoomSheet = sheetName.includes("장소") || sheetName.includes("실수업") || sheetName.includes("배정") && /실수업|선택과목\s*최대인원/.test(topCellsText) || /실수업/.test(String(rows[0]?.[0] ?? ""));
+     if(isRoomSheet && !sheetName.includes("담임교사")){
+      const inferredGrade = sheetName.includes("3학년") || sheetName.includes("고3") ? 3 : sheetName.includes("2학년") || sheetName.includes("고2") ? 2 : 3;
+      const parsedRooms = parseElectiveRoomGridSheet(rows, inferredGrade);
+      Object.assign(electiveRooms, parsedRooms);
+     }
+    }
+
+    // ★ 2단계: 나머지 시트(담임배정, 전교생 명단/선택과목, 교사별/학급별 시간표) 파싱
     for(const sheetName of wb.SheetNames){
      const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "", raw: false });
      if(rows.length < 2) continue;
@@ -2817,7 +3171,9 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
      const hasHakbunR0 = r0.some(c => /학번/.test(c));
      const hasNameR0 = r0.some(c => /^(이름|성명|학생명)$/.test(c));
 
-     // (0) '담임교사배정표' 시트 인식 (예: 1-1 또는 1학년 1반 모두 호환)
+     if(sheetName.includes("장소") || /실수업/.test(r0[0] || "")) continue;
+
+     // (0) '담임교사배정표' 시트 인식
      if(sheetName.includes("담임") && r0.some(c => /학반|학급|반/.test(c))){
       for(let r = 1; r < rows.length; r++){
        const deptVal = normalizeDeptCell(rows[r]?.[0], 1) || String(rows[r]?.[0] ?? "").trim();
@@ -2906,8 +3262,11 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
         choices[slot] = subjVal;
 
         const rosterKey = subjVal;
+        const overriddenRoom = resolveElectiveRoomOverride(subjVal, "", "", electiveRooms);
         if(!electiveRosters[rosterKey]){
-         electiveRosters[rosterKey] = { subject: subjVal, slot, grade: parsedId.grade, students: [] };
+         electiveRosters[rosterKey] = { subject: subjVal, slot, grade: parsedId.grade, room: overriddenRoom || "", students: [] };
+        } else if(overriddenRoom && !electiveRosters[rosterKey].room){
+         electiveRosters[rosterKey].room = overriddenRoom;
         }
         if(!electiveRosters[rosterKey].students.some(s => s.dept === parsedId.dept && s.name === rawName)){
          electiveRosters[rosterKey].students.push({
@@ -2937,7 +3296,7 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
       }
      }
 
-     // (B) '전체시간표(교사별)' 시트 파싱
+     // (B) '전체시간표(교사별)' 시트 파싱 (★ 선택과목 장소 시트가 있으면 시간표의 교실보다 장소 시트 값을 최우선 적용!)
      const teacherHeaderRowIdx = rows.slice(0, 8).findIndex(rowArr => Array.isArray(rowArr) && rowArr.some(c => /교사명/.test(String(c ?? ""))));
      if(sheetName.includes("교사별") && teacherHeaderRowIdx >= 0){
       const tHeaderRow = (rows[teacherHeaderRowIdx] || []).map(x => String(x ?? "").trim());
@@ -2963,16 +3322,19 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
        teacherCols.forEach(({ colIdx, teacherName }) => {
         const subj = String(rowSubj[colIdx] ?? "").trim();
         const rawRoom = String(rowRoom[colIdx] ?? "").trim();
-        const room = normalizeDeptCell(rawRoom, 1) || rawRoom;
+        const baseRoom = normalizeDeptCell(rawRoom, 1) || rawRoom;
         if(!subj || subj === "0" || subj === "-") return;
-        teachersSchedule[teacherName].push({ day: curDay, period: Math.floor(periodNum), subject: subj, room });
+
+        // 선택과목 장소 시트(electiveRooms)에 해당 과목(+교사)의 장소가 지정되어 있으면 최우선 덮어쓰기!
+        const finalRoom = resolveElectiveRoomOverride(subj, teacherName, baseRoom, electiveRooms);
+        teachersSchedule[teacherName].push({ day: curDay, period: Math.floor(periodNum), subject: subj, room: finalRoom });
 
         const hrAutoMatch = subj.match(/^자율([1-3])(\d)$/);
         if(hrAutoMatch){
          const inferredDept = `${hrAutoMatch[1]}-${hrAutoMatch[2]}`;
          if(!homeroomTeachers[inferredDept]) homeroomTeachers[inferredDept] = teacherName;
-        } else if(subj === "자율" && /^[1-3]-\d+$/.test(room)){
-         if(!homeroomTeachers[room]) homeroomTeachers[room] = teacherName;
+        } else if(subj === "자율" && /^[1-3]-\d+$/.test(baseRoom)){
+         if(!homeroomTeachers[baseRoom]) homeroomTeachers[baseRoom] = teacherName;
         }
        });
       }
@@ -2999,11 +3361,12 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
         const subj = String(rowSubj[colIdx] ?? "").trim();
         const tName = cleanMasterLabel(String(rowTeacher[colIdx] ?? "").trim());
         if(!subj || subj === "0" || subj === "-" || /최소성취|특별프로그램|하교/.test(subj)) return;
+        const overriddenRoom = resolveElectiveRoomOverride(subj, tName, dept, electiveRooms);
         if(!classTimetables[dept]) classTimetables[dept] = {};
-        classTimetables[dept][`${curDay}-${Math.floor(periodNum)}`] = { subject: subj, teacher: tName };
+        classTimetables[dept][`${curDay}-${Math.floor(periodNum)}`] = { subject: subj, teacher: tName, room: overriddenRoom };
         if(tName && !wb.SheetNames.some(s => s.includes("교사별"))){
          if(!teachersSchedule[tName]) teachersSchedule[tName] = [];
-         teachersSchedule[tName].push({ day: curDay, period: Math.floor(periodNum), subject: subj, room: dept });
+         teachersSchedule[tName].push({ day: curDay, period: Math.floor(periodNum), subject: subj, room: overriddenRoom });
         }
        });
       }
@@ -3012,7 +3375,18 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
 
     Object.values(homeroomRosters).forEach(list => list.sort((a,b) => a.number - b.number));
 
-    const finalTeachers = Object.keys(teachersSchedule).length > 0 ? teachersSchedule : (live.current.schoolMasterData?.teachers || {});
+    // 만약 기존 교사 시간표가 있더라도 새로 업로드된 선택과목 장소 시트(electiveRooms)가 있으면 전체 교사 시간표에 장소 우선 반영
+    const rawTeachers = Object.keys(teachersSchedule).length > 0 ? teachersSchedule : (live.current.schoolMasterData?.teachers || {});
+    const finalTeachers = Object.fromEntries(
+     Object.entries(rawTeachers).map(([tName, slotArr]) => [
+      tName,
+      (slotArr || []).map(sl => ({
+       ...sl,
+       room: resolveElectiveRoomOverride(sl.subject, tName, sl.room, electiveRooms)
+      }))
+     ])
+    );
+
     const finalElectives = Object.keys(electiveRosters).length > 0 ? electiveRosters : (live.current.schoolMasterData?.electiveRosters || {});
     const finalClassTt = Object.keys(classTimetables).length > 0 ? classTimetables : (live.current.schoolMasterData?.classTimetables || {});
     const nextElectiveMatrix = {
@@ -3030,6 +3404,7 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
      homeroomRosters,
      electiveRosters: finalElectives,
      homeroomTeachers,
+     electiveRooms,
      electiveMatrix: nextElectiveMatrix,
      updatedBy: cleanMasterLabel(currentUser?.name || live.current.profile.teacher || "관리자"),
      updatedAt: new Date().toISOString()
@@ -3045,6 +3420,7 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
      homeroomRosters,
      electiveRosters: finalElectives,
      homeroomTeachers,
+     electiveRooms,
      effectiveDate: effDate,
      versions: mergedVersions,
      schoolConfig: templateConfig,
@@ -3076,8 +3452,8 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
     showUploadResult(
      true,
      `✅ [${file.name}] 통합 마스터 세팅 및 전교 배포 완료!`,
-     `학급 명렬 ${Object.keys(homeroomRosters).length}개반 · 교사 시간표 ${Object.keys(finalTeachers).length}명 · 선택과목 ${Object.keys(finalElectives).length}개 분반이 등록되었습니다.`,
-     `기준일자 [${effDate}] 버전으로 저장되었으며, 각 선생님 로그인 시 담임 출결과 교과 출결이 자동으로 연결됩니다.`,
+     `학급 명렬 ${Object.keys(homeroomRosters).length}개반 · 교사 시간표 ${Object.keys(finalTeachers).length}명 · 선택과목 ${Object.keys(finalElectives).length}개 분반 · 선택과목 수업장소 ${Object.keys(electiveRooms).length}건이 등록되었습니다.`,
+     `기준일자 [${effDate}] 버전으로 저장되었으며, 2·3학년 선택과목 장소 시트에 기재된 수업 장소가 시간표에 최우선 반영되었습니다.`,
      false,
      breakdown
     );
@@ -3100,6 +3476,7 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
     homeroomRosters: ver.homeroomRosters || {},
     electiveRosters: ver.electiveRosters || {},
     homeroomTeachers: ver.homeroomTeachers || {},
+    electiveRooms: ver.electiveRooms || {},
     effectiveDate: ver.effectiveDate,
     updatedAt: new Date().toISOString()
    };
@@ -3122,13 +3499,14 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
   const homeroomTeachers = master.homeroomTeachers || {};
   const electiveRosters = master.electiveRosters || {};
   const homeroomRosters = master.homeroomRosters || {};
+  const electiveRooms = master.electiveRooms || {};
 
   // 1순위: 담임 배정표(homeroomTeachers)에서 이 선생님이 맡은 담임 학급 확인
-  // 2순위: 가입/로그인 시 계정에 지정한 학년-반(currentUser.grade / classroom) 확인
+  // 2순위: 가입/로그인 시 계정에 지정한 담임 여부(currentUser.homeroom) 확인
   const assignedHomeroomDept = tName ? (Object.keys(homeroomTeachers).find(dept => cleanMasterLabel(homeroomTeachers[dept]) === tName) || "") : "";
   let targetGrade = Number(currentUser?.grade) || Number(live.current.profile.grade) || 1;
   let targetClassroom = Number(currentUser?.classroom) || Number(live.current.profile.classroom) || 1;
-  let isHomeroomTeacher = live.current.profile.homeroom;
+  let isHomeroomTeacher = currentUser?.homeroom !== undefined ? !!currentUser.homeroom : live.current.profile.homeroom;
 
   if(assignedHomeroomDept && /^[1-3]-\d+$/.test(assignedHomeroomDept)){
    const [g, c] = assignedHomeroomDept.split("-").map(Number);
@@ -3141,7 +3519,7 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
   }
 
   const finalDept = `${targetGrade}-${targetClassroom}`;
-  const myHrStudents = getHomeroomStudentsFromMaster(finalDept, master, live.current);
+  const myHrStudents = isHomeroomTeacher ? getHomeroomStudentsFromMaster(finalDept, master, live.current) : [];
 
   if(!tName && !myHrStudents.length){
    if(!silent) notify(`선생님의 시간표 또는 학급 명단 데이터가 아직 없습니다. 마스터 관리에서 통합 엑셀을 먼저 업로드해 주세요.`);
@@ -3154,8 +3532,11 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
   (slots || []).forEach(({ day: dName, period, subject, room }) => {
    const cleanSubj = String(subject || "").trim();
    const rawRoom = String(room || "").trim();
-   const cleanRoom = normalizeDeptCell(rawRoom, 1) || rawRoom;
+   const baseRoom = normalizeDeptCell(rawRoom, 1) || rawRoom;
    if(!cleanSubj || cleanSubj === "0") return;
+
+   // ★ 선택과목 장소 시트(electiveRooms)가 있으면 시간표에 적힌 교실보다 장소 시트의 교실/특별실을 최우선 적용!
+   const cleanRoom = resolveElectiveRoomOverride(cleanSubj, tName, baseRoom, electiveRooms);
 
    // ① 선택과목 분반 매칭
    const elRoster = matchElectiveRosterFromMaster(cleanSubj, cleanRoom, electiveRosters);
@@ -3165,8 +3546,9 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
 
    if(elRoster && Array.isArray(elRoster.students) && elRoster.students.length > 0){
     const slotTag = elRoster.slot ? `${elRoster.slot}타임` : "선택";
-    classId = `cls-el-${normalizeSubjKey(cleanSubj)}-${cleanRoom || "all"}`;
-    classNameLabel = cleanRoom ? `[${slotTag}] ${cleanSubj} (${cleanRoom})` : `[${slotTag}] ${cleanSubj}`;
+    const roomToDisplay = cleanRoom || elRoster.room || "";
+    classId = `cls-el-${normalizeSubjKey(cleanSubj)}-${roomToDisplay || "all"}`;
+    classNameLabel = roomToDisplay ? `[${slotTag}] ${cleanSubj} (${roomToDisplay})` : `[${slotTag}] ${cleanSubj}`;
     classStudents = elRoster.students;
    } else if(/^1-\d+$/.test(cleanRoom)){
     // ② 1학년 학급 수업은 반 단위 통합 명렬 연결
@@ -3204,14 +3586,13 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
   const activeSchoolName = currentUser?.school || selectedSchool || live.current.profile.school || "광영고등학교";
 
   update(d => {
-   const resolvedHrStudents = myHrStudents.length > 0 ? myHrStudents : d.students;
+   const resolvedHrStudents = isHomeroomTeacher ? (myHrStudents.length > 0 ? myHrStudents : d.students) : [];
    const homeroomItem = {
     id: "homeroom",
     name: `우리반 (${targetGrade}학년 ${targetClassroom}반 담임 명렬)`,
     subject: "학급",
     students: resolvedHrStudents
    };
-   // 만약 아직 교사 시간표가 없더라도 마스터에 등록된 학급 명단이 있으면 교과수업에서 선택할 수 있도록 보조 연결
    if(classMap.size === 0 && Object.keys(homeroomRosters).length > 0){
     Object.entries(homeroomRosters).sort(([a],[b])=>a.localeCompare(b,"ko",{numeric:true})).forEach(([deptKey, stuArr]) => {
      if(Array.isArray(stuArr) && stuArr.length > 0){
@@ -3238,8 +3619,8 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
       ...d.studio.settings,
       school: activeSchoolName,
       teacher: tName || d.profile.teacher,
-      target: `${targetGrade}학년 ${targetClassroom}반`,
-      location: `${targetGrade}학년 ${targetClassroom}반 교실`
+      target: isHomeroomTeacher ? `${targetGrade}학년 ${targetClassroom}반` : (Array.from(classMap.values())[0]?.name || "전학년"),
+      location: isHomeroomTeacher ? `${targetGrade}학년 ${targetClassroom}반 교실` : "교실"
      }
     },
     students: resolvedHrStudents,
@@ -3248,12 +3629,16 @@ const [broadcastAcademicToSchool, setBroadcastAcademicToSchool] = useState(true)
    };
   });
 
-  // 담임교사는 기본적으로 '우리반(homeroom)' 또는 현재 교시 수업반을, 비담임 교과교사는 첫 교과 수업반을 기본 선택
+  // 현재 시각의 교시를 확인하여 해당 교시에 배정된 수업반 명단을 즉시 기본 선택! (비담임이면 절대 'homeroom'이 선택되지 않음)
   setTimeout(() => {
    const now = new Date();
    const dayNames = ["일","월","화","수","목","금","토"];
    const todayName = dayNames[now.getDay()];
-   const scheduledId = nextTimetable[`${todayName}-${activePeriod}`] || (isHomeroomTeacher ? "homeroom" : (Object.values(nextTimetable)[0] || Array.from(classMap.keys())[0] || "homeroom"));
+   const curPt = getCurrentSchoolPeriod(now);
+   const targetP = curPt ? curPt.period : activePeriod;
+   if(curPt) setActivePeriod(curPt.period);
+   const firstSubjId = Array.from(classMap.keys())[0] || Object.values(nextTimetable)[0] || "";
+   const scheduledId = nextTimetable[`${todayName}-${targetP}`] || (isHomeroomTeacher ? "homeroom" : firstSubjId);
    if(scheduledId) setActiveClassId(scheduledId);
   }, 50);
 
@@ -4558,7 +4943,7 @@ const payload = {
   setSchoolsList(nextSchools);
  }
 
-// 로그인 처리 (계정별 독립 데이터 보장 · 이전 사용자의 학급/이름 잔재 완벽 제거)
+// 로그인 처리 (계정별 독립 데이터 보장 · 담임/비담임 구분 반영)
   async function handleTeacherLogin(e){
    e.preventDefault();
    if(authBusy) return;
@@ -4587,6 +4972,7 @@ const payload = {
     localStorage.setItem("gyomusil-selected-school", userSchool);
 
     const cleanName = cleanMasterLabel(found.name);
+    const isHr = found.homeroom !== false;
     const userGrade = Number(found.grade) || 1;
     const userClass = Number(found.classroom) || 1;
     const sessionUser = {
@@ -4596,6 +4982,7 @@ const payload = {
      email: found.email || "",
      role: found.role || "teacher",
      roomCode: found.roomCode,
+     homeroom: isHr,
      grade: userGrade,
      classroom: userClass
     };
@@ -4606,9 +4993,8 @@ const payload = {
     const cfg = getSupabaseClientConfig();
     setCode(found.roomCode);
 
-    // 이전 로그인 사용자의 로컬 데이터(live.current)를 쓰지 않고 깨끗한 초기 템플릿에서 출발
     const cleanBase = initialData();
-    const targetLabel = `${userGrade}학년 ${userClass}반`;
+    const targetLabel = isHr ? `${userGrade}학년 ${userClass}반` : "담당 학급";
     const freshProfileData = normalize({
      ...cleanBase,
      profile: {
@@ -4616,7 +5002,7 @@ const payload = {
       teacher: cleanName,
       grade: userGrade,
       classroom: userClass,
-      homeroom: true
+      homeroom: isHr
      },
      studio: {
       ...cleanBase.studio,
@@ -4643,7 +5029,7 @@ const payload = {
     sharedVersionRef.current = 0;
     await pullSharedSchoolRoster(true, userSchool);
     setTimeout(() => applyTeacherScheduleFromMaster(cleanName, live.current.schoolMasterData, true), 120);
-    notify(`[${userSchool}] ${cleanName} 선생님(${userGrade}학년 ${userClass}반), 환영합니다!`);
+    notify(`[${userSchool}] ${cleanName} 선생님(${isHr ? `${userGrade}학년 ${userClass}반 담임` : "비담임 교과전담"}), 환영합니다!`);
    } catch(err) {
     setAuthError(err.message);
    } finally {
@@ -4651,7 +5037,7 @@ const payload = {
    }
   }
 
- // 신규 교사 계정 신청 (소속 학교 선택 포함)
+ // 신규 교사 계정 신청 (담임교사 체크 시에만 학년·반 활성화)
  async function handleTeacherRegister(e){
   e.preventDefault();
   if(authBusy) return;
@@ -4663,8 +5049,9 @@ const payload = {
    const password = String(fd.get("password")||"").trim();
    const name = String(fd.get("name")||"").trim();
    const email = String(fd.get("email")||"").trim();
-   const grade = Number(fd.get("grade")) || 1;
-   const classroom = Number(fd.get("classroom")) || 1;
+   const isHomeroom = fd.has("homeroom");
+   const grade = isHomeroom ? (Number(fd.get("grade")) || 1) : 1;
+   const classroom = isHomeroom ? (Number(fd.get("classroom")) || 1) : 1;
 
    if(!school) throw Error("소속 고등학교를 선택하거나 입력해 주세요.");
    if(!/^[a-z0-9_]{3,20}$/.test(username)) throw Error("아이디는 영문 소문자, 숫자, 밑줄(_) 3~20자로 입력해 주세요.");
@@ -4686,6 +5073,7 @@ const payload = {
     role: "teacher",
     approved: false,
     roomCode,
+    homeroom: isHomeroom,
     grade,
     classroom,
     createdAt: new Date().toISOString()
@@ -4696,7 +5084,7 @@ const payload = {
    setSelectedSchool(school);
    localStorage.setItem("gyomusil-selected-school", school);
    setAuthMode("login");
-   setAuthNotice(`[${school}] 신규 교사 계정 신청이 완료되었습니다! 학교 관리자 또는 마스터 승인 후 바로 로그인하실 수 있습니다.`);
+   setAuthNotice(`[${school}] 신규 교사 계정 신청(${isHomeroom ? `${grade}-${classroom} 담임` : "비담임 교과전담"})이 완료되었습니다! 학교 관리자 또는 마스터 승인 후 바로 로그인하실 수 있습니다.`);
   } catch(err) {
    setAuthError(err.message);
   } finally {
@@ -5132,7 +5520,11 @@ useEffect(()=>{
  function cancel(){requestId.current++;request.current?.abort();aiLock.current=false;setBusy("");setError("취소했습니다. 서버에서 이미 처리한 사용량에는 비용이 발생할 수 있습니다.");}
  function go(name){
   if(aiLock.current&&!confirm("생성 요청을 취소하고 이동할까요?"))return;
-  if(aiLock.current)cancel();setPage(name);setDrawer(false);setQuery("");setFilter("전체");
+  if(aiLock.current)cancel();
+  setPage(name);setDrawer(false);setQuery("");setFilter("전체");
+  if(name==="출결·제출물 관리"){
+   setTimeout(()=>detectCurrentClass(live.current), 20);
+  }
  }
  async function run(label,action){
   if(aiLock.current)return;
@@ -5625,12 +6017,13 @@ exp에는 정답 이유와 학습 목표·일반화 연결을 설명하고 사�
   return () => window.removeEventListener("resize", onResize);
  }, []);
 
-const nav=[
-   ["나의 교무실",[["오늘의 교무실",Home],["할 일 목록",CheckCircle],["나의 일정",Calendar]]],
-   ["수업 설계·문해력",[["과정안·학습지",Layers],["매일 문해력",Globe],["기출 문제은행",Target]]],
-   ["학급·수업 운영",[["출결·제출물 관리",User],...(data.profile.homeroom?[["우리반 담임실",MessageSquare]]:[])]],
-   ["수업·업무 지원 · AI",[["학생 세특 초안",File],["사안·민원 지원",Lock],["행사 기획",Briefcase],["알림장·문자",Send],["온라인 등록부",File],["교사용 자료실",Folder]]]
-  ];
+const baseNavMap = {
+  "나의 교무실": [["오늘의 교무실",Home],["할 일 목록",CheckCircle],["나의 일정",Calendar]],
+  "수업 설계·문해력": [["과정안·학습지",Layers],["매일 문해력",Globe],["기출 문제은행",Target]],
+  "학급·수업 운영": [["출결·제출물 관리",User],...(data.profile.homeroom?[["우리반 담임실",MessageSquare]]:[])],
+  "수업·업무 지원 · AI": [["학생 세특 초안",File],["사안·민원 지원",Lock],["행사 기획",Briefcase],["알림장·문자",Send],["온라인 등록부",File],["교사용 자료실",Folder]]
+ };
+ const nav = navOrder.filter(k => baseNavMap[k]).map(k => [k, baseNavMap[k]]);
  const busyView=busy&&<div className="mb-5 rounded-2xl border-2 border-brand bg-gradient-to-r from-[#f2ecff] via-[#faf8fe] to-white p-5 shadow-md"><div className="flex flex-wrap items-center justify-between gap-4"><div className="space-y-1.5"><p role="status" className="flex items-center gap-2.5 text-sm font-bold text-brand"><Loader2 className="h-5 w-5 animate-spin shrink-0"/><span>{busy} (보통 1~2분 정도 소요됩니다)</span></p><p className="text-xs leading-6 text-slate-600">💡 <strong>선생님, 잠시만 기다려 주세요!</strong> AI가 대용량 문서와 맞춤형 양식을 정밀하게 작성하고 있습니다. 일시적인 서버 과부하가 있더라도 <strong>1~2분 내외로 완료되오니 다른 메뉴로 이동하거나 새로고침하지 마시고 이 화면에서 잠시만 기다려 주세요.</strong> (혹시 시간 초과 시에도 입력하신 내용은 사라지지 않습니다.)</p></div><Button onClick={cancel}>요청 취소</Button></div></div>;
  const errorView=error&&<div className="mb-4"><Note error>{error}</Note></div>;
  const taskRow=t=><div key={t.id} className="flex items-start gap-3 border-b border-line p-4 last:border-0"><input type="checkbox" className="mt-1 h-4 w-4 shrink-0" aria-label={t.title+" 완료"} checked={!!t.done} onChange={()=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x)}))}/><div className="min-w-0 flex-1"><p className={`break-words text-sm ${t.done?"text-slate-500 line-through":""}`}>{t.title}</p><p className="mt-2 text-[11px] text-slate-500">{t.category} · {dateLabel(t.date)} {t.priority==="높음"&&!t.done&&<span className="ml-2 text-red-700">중요</span>}</p></div><button type="button" aria-label="수정" className="p-2 text-slate-500" onClick={()=>setModal({type:"record",kind:"task",value:t})}><Edit className="h-4 w-4"/></button><button type="button" aria-label="삭제" className="p-2 text-slate-500" onClick={()=>setModal({type:"delete",key:"tasks",id:t.id})}><Trash2 className="h-4 w-4"/></button></div>;
@@ -5648,99 +6041,182 @@ const nav=[
  const isRecentNews=d=>{if(!validDate(d))return false;const diff=(new Date(day()+"T12:00:00Z")-new Date(d+"T12:00:00Z"))/86400000;return diff>=0&&diff<=3;};
 
 const renderInstallModal = () => modal?.type==="install" && (
-  <Dialog title="📲 스마트폰 · 맥북 · PC 바탕화면에 '교무실' 꺼내놓기 (앱 설치 안내)" wide onClose={()=>setModal(null)}>
-   <div className="space-y-4">
-    <div className="rounded-xl border-2 border-brand bg-[#faf8fe] p-4 space-y-2">
+  <Dialog title="📲 아이폰 · 갤럭시(안드로이드) · 태블릿 · PC 홈 화면 설치 안내" wide onClose={()=>setModal(null)}>
+   <div className="space-y-4 break-keep">
+    {/* 상단: 현재 접속 환경 자동 진단 배너 */}
+    <div className="rounded-xl border-2 border-brand bg-[#faf8fe] p-4 space-y-2.5">
      <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-sm font-extrabold text-brand">✨ 별도 설치 파일 없이 바탕화면(홈 화면·Dock)에 바로 꺼내어 진짜 앱처럼 씁니다!</p>
-      <Tag>{detectedOS.isIOS ? "🍎 현재 아이폰·아이패드 접속 중" : detectedOS.isAndroid ? "🤖 현재 안드로이드폰 접속 중" : detectedOS.isMac ? "💻 현재 맥북(Mac) 접속 중" : "🖥️ 현재 윈도우 PC 접속 중"}</Tag>
+      <p className="text-sm font-extrabold text-brand">
+       ✨ 앱스토어 검색 없이 10초 만에 홈 화면(바탕화면)에 아이콘을 만들어 씁니다!
+      </p>
+      <Tag>
+       {detectedOS.isIOS ? "🍎 아이폰·아이패드 접속 중" : detectedOS.isAndroid ? (detectedOS.isSamsungBrowser ? "🤖 갤럭시 (삼성 인터넷) 접속 중" : "🤖 갤럭시·안드로이드 접속 중") : detectedOS.isMac ? "💻 맥북(Mac) 접속 중" : "🖥️ 윈도우 PC 접속 중"}
+      </Tag>
      </div>
-     <p className="text-xs leading-6 text-slate-600">
-      아이폰·아이패드·맥북은 애플 보안 정책상 별도의 설치 프로그램 대신 <strong>[홈 화면에 추가]</strong> 또는 <strong>[Dock에 추가 / 바탕화면으로 주소 끌어놓기]</strong> 방식으로 바탕화면에 아이콘을 만들어 사용합니다. 한 번 꺼내 두시면 주소창 없이 1초 만에 켜지고 항상 최신 버전으로 자동 유지됩니다!
-     </p>
-     {detectedOS.isKakao && (
-      <div className="mt-2 rounded-lg border-2 border-amber-400 bg-amber-50 p-3 text-xs font-bold text-amber-900">
-       ⚠️ 현재 [카카오톡 내부 브라우저]로 접속하셨습니다!<br/>
-       카카오톡 안에서는 바탕화면 추가가 제한되오니, 화면 우측 하단(또는 우측 상단)의 <strong>[점 3개(⋯) 또는 공유 버튼] ➔ [다른 브라우저로 열기 / Safari로 열기]</strong>를 먼저 누른 뒤 아래 방법을 따라 해 주세요!
+
+     {/* 인앱 브라우저(카톡, 네이버, 밴드 등) 경고 및 원클릭 외부 브라우저 열기 */}
+     {detectedOS.isInApp && (
+      <div className="rounded-xl border-2 border-red-400 bg-red-50 p-3.5 text-xs leading-6 text-red-900 space-y-2">
+       <p className="font-extrabold text-sm text-red-700">
+        🚨 잠깐! 현재 [카카오톡 / 네이버 / 밴드 내부 창]으로 접속하셨습니다!
+       </p>
+       <p>
+        메신저 내부 창에서는 스마트폰 보안 정책상 <strong>[홈 화면에 추가] 기능이 작동하지 않거나 비활성화</strong>됩니다. 아래 버튼을 눌러 정식 브라우저로 먼저 열어주세요!
+       </p>
+       <div className="flex flex-wrap gap-2 pt-1">
+        {detectedOS.isAndroid ? (
+         <Button primary className="!bg-red-600 hover:!bg-red-700 w-full sm:w-auto" onClick={openInExternalBrowser}>
+          🚀 터치 한 번으로 갤럭시 크롬(Chrome)에서 바로 열기
+         </Button>
+        ) : (
+         <Button primary className="!bg-red-600 hover:!bg-red-700 w-full sm:w-auto" onClick={() => copy(window.location.href).then(() => notify("주소가 복사되었습니다! 아이폰 기본 'Safari(사파리)' 앱을 열어 주소창에 붙여넣어 주세요."))}>
+          📋 주소 복사하기 (복사 후 아이폰 Safari에서 열기)
+         </Button>
+        )}
+       </div>
       </div>
      )}
+
+     {/* 아이폰인데 Safari가 아닌 크롬/네이버앱 등으로 접속한 경우 안내 */}
+     {detectedOS.isIOS && (detectedOS.isCriOS || detectedOS.isNaver) && !detectedOS.isKakao && (
+      <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-xs font-bold text-amber-900">
+       ⚠️ 아이폰·아이패드에서는 애플 정책상 <strong>기본 브라우저인 [Safari(사파리)]</strong>에서 열어야 가장 깔끔하게 홈 화면 아이콘이 생성됩니다. (또는 현재 브라우저 주소창 우측 상단의 공유 버튼 📤 ➔ [홈 화면에 추가]를 눌러주세요.)
+      </div>
+     )}
+
+     {/* 크롬/삼성인터넷/PC에서 즉시 설치 프롬프트가 준비된 경우 */}
      {deferredPrompt && (
-      <div className="pt-2">
-       <Button primary className="w-full !min-h-[46px] !text-sm shadow-md" onClick={async()=>{
+      <div className="pt-1">
+       <Button primary className="w-full !min-h-[48px] !text-sm shadow-md animate-pulse" onClick={async()=>{
         deferredPrompt.prompt();
         const {outcome} = await deferredPrompt.userChoice;
         if(outcome==="accepted"){ setDeferredPrompt(null); setModal(null); }
        }}>
-        🚀 지금 내 기기 바탕화면에 원클릭으로 앱 설치하기
+        🚀 지금 내 기기 홈 화면(바탕화면)에 원클릭으로 바로 설치하기
        </Button>
       </div>
      )}
     </div>
 
-    <div className="grid gap-3 md:grid-cols-2 text-xs leading-6 text-slate-700">
-     {/* 1. 아이폰 / 아이패드 */}
-     <div className={`rounded-xl border-2 p-4 space-y-2 ${detectedOS.primary==="ios" ? "border-brand bg-[#faf8fe] shadow-sm" : "border-line bg-white"}`}>
-      <div className="flex items-center justify-between">
-       <h4 className="font-extrabold text-sm text-ink">🍎 아이폰 · 아이패드 (홈 화면으로 빼기)</h4>
-       {detectedOS.primary==="ios" && <span className="rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold text-white">✨ 현재 접속 기기</span>}
-      </div>
-      <p className="rounded-lg bg-red-50 px-2.5 py-1.5 text-[11px] font-bold text-red-700 border border-red-200">
-       💡 아이폰·아이패드는 일반 설치 버튼이 없으며, 아래 3단계로 <strong>바탕화면(홈 화면)에 아이콘을 꺼내어</strong> 사용합니다.
-      </p>
-      <ol className="list-decimal pl-4 space-y-1">
-       <li>반드시 기본 브라우저인 <strong>Safari(사파리)</strong>로 이 주소를 엽니다. (카톡에서 열렸다면 우측 하단 <code>⋯</code> ➔ <code>Safari로 열기</code>)</li>
-       <li>화면 맨 아래 정중앙의 <strong>[공유 버튼 (네모 위 화살표 📤)]</strong>을 터치합니다.</li>
-       <li>메뉴를 아래로 내려 <strong>[홈 화면에 추가 (➕)]</strong> ➔ 우측 상단 <strong>[추가]</strong>를 누르면 바탕화면에 보라색 교무실 아이콘이 생깁니다!</li>
-      </ol>
-     </div>
+    {/* 기기별 빠른 탭 선택 */}
+    <div className="flex overflow-x-auto no-scrollbar gap-1.5 rounded-xl bg-paper p-1.5 border border-line">
+     {[
+      ["auto", "🎯 전체 기기 한눈에 보기"],
+      ["galaxy", "🤖 갤럭시·안드로이드 (설치 안될 때 해결법)"],
+      ["iphone", "🍎 아이폰·아이패드 (Safari 안내)"],
+      ["pc", "💻 맥북 · 윈도우 PC"]
+     ].map(([k, label]) => (
+      <button
+       type="button"
+       key={k}
+       onClick={() => setInstallTab(k)}
+       className={`whitespace-nowrap shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition-colors ${installTab === k ? "bg-brand text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}
+      >
+       {label}
+      </button>
+     ))}
+    </div>
 
-     {/* 2. 갤럭시 / 안드로이드 */}
-     <div className={`rounded-xl border-2 p-4 space-y-2 ${detectedOS.primary==="android" ? "border-brand bg-[#faf8fe] shadow-sm" : "border-line bg-white"}`}>
-      <div className="flex items-center justify-between">
-       <h4 className="font-extrabold text-sm text-ink">🤖 갤럭시 · 안드로이드폰 (크롬 · 삼성인터넷)</h4>
-       {detectedOS.primary==="android" && <span className="rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold text-white">✨ 현재 접속 기기</span>}
+    <div className="grid gap-3 md:grid-cols-2 text-xs leading-6 text-slate-700">
+     {/* 1. 갤럭시 · 안드로이드폰 */}
+     {(installTab === "auto" || installTab === "galaxy") && (
+      <div className={`rounded-xl border-2 p-4 space-y-3 ${installTab === "galaxy" ? "md:col-span-2" : ""} ${detectedOS.primary==="android" ? "border-brand bg-[#faf8fe] shadow-sm" : "border-line bg-white"}`}>
+       <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="font-extrabold text-sm text-ink">🤖 갤럭시(삼성) · 기타 안드로이드폰 설치 방법</h4>
+        {detectedOS.primary==="android" && <span className="rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold text-white">✨ 현재 접속 기기</span>}
+       </div>
+
+       <div className="grid gap-2.5 sm:grid-cols-2">
+        <div className="rounded-lg border border-[#dcd3ee] bg-white p-3 space-y-1">
+         <p className="font-extrabold text-brand">① 갤럭시 기본 [삼성 인터넷] 브라우저</p>
+         <ol className="list-decimal pl-4 space-y-1 text-[11.5px]">
+          <li>화면 우측 하단의 <strong>[줄 3개 메뉴(≡)]</strong>를 터치합니다.</li>
+          <li><strong>[현재 페이지 추가 (＋)]</strong>를 누릅니다.</li>
+          <li><strong>[홈 화면]</strong>을 선택 ➔ <strong>[추가]</strong>를 누르면 홈 화면에 아이콘이 생깁니다!</li>
+         </ol>
+        </div>
+
+        <div className="rounded-lg border border-[#dcd3ee] bg-white p-3 space-y-1">
+         <p className="font-extrabold text-emerald-700">② [크롬(Chrome)] 및 기타 안드로이드 브라우저</p>
+         <ol className="list-decimal pl-4 space-y-1 text-[11.5px]">
+          <li>화면 우측 상단의 <strong>[점 3개 메뉴(⋮)]</strong>를 터치합니다.</li>
+          <li>메뉴 중 <strong>[홈 화면에 추가]</strong> 또는 <strong>[앱 설치]</strong>를 터치합니다.</li>
+          <li>팝업에서 <strong>[설치]</strong> 또는 <strong>[홈 화면에 추가]</strong>를 누르면 완료됩니다!</li>
+         </ol>
+        </div>
+       </div>
+
+       {/* 갤럭시에서 홈 화면 추가가 안 될 때의 3가지 점검 체크리스트 */}
+       <div className="rounded-xl border border-amber-300 bg-amber-50/90 p-3 space-y-1.5 text-[11.5px] text-amber-950">
+        <p className="font-extrabold text-xs text-amber-900">🔧 갤럭시에서 [홈 화면에 추가]를 눌렀는데도 아이콘이 안 생길 때 해결법!</p>
+        <ul className="list-disc pl-4 space-y-1">
+         <li><strong>원인 1 (홈 화면 레이아웃 잠금):</strong> 갤럭시 <strong>[설정 ⚙️] ➔ [홈 화면] ➔ [홈 화면 레이아웃 잠금]</strong>이 켜져 있으면 새 아이콘이 추가되지 않습니다. 잠금을 잠시 끄고 추가해 주세요!</li>
+         <li><strong>원인 2 (앱스 화면에만 추가됨):</strong> 홈 화면을 위로 쓸어올려 <strong>[전체 앱 목록(앱스) 맨 마지막 페이지]</strong>를 확인해 보세요. 거기에 생성된 교무실 아이콘을 길게 눌러 홈 화면으로 꺼내실 수 있습니다.</li>
+         <li><strong>원인 3 (카카오톡·밴드 내부 창):</strong> 카톡에서 링크를 바로 누르면 설치가 막힙니다. 우측 하단 <strong>[점 3개(⋮) ➔ 다른 브라우저로 열기]</strong>를 먼저 눌러주세요.</li>
+        </ul>
+       </div>
       </div>
-      <ol className="list-decimal pl-4 space-y-1">
-       <li><strong>크롬(Chrome):</strong> 우측 상단 <strong>[점 3개 메뉴(⋮)]</strong> 터치 ➔ <strong>[홈 화면에 추가]</strong> 또는 <strong>[앱 설치]</strong>를 누릅니다.</li>
-       <li><strong>삼성 인터넷:</strong> 우측 하단 <strong>[줄 3개 메뉴(≡)]</strong> 터치 ➔ <strong>[현재 페이지 추가 (+)]</strong> ➔ <strong>[홈 화면]</strong>을 선택하면 바탕화면에 즉시 깔립니다!</li>
-      </ol>
-     </div>
+     )}
+
+     {/* 2. 아이폰 · 아이패드 */}
+     {(installTab === "auto" || installTab === "iphone") && (
+      <div className={`rounded-xl border-2 p-4 space-y-3 ${installTab === "iphone" ? "md:col-span-2" : ""} ${detectedOS.primary==="ios" ? "border-brand bg-[#faf8fe] shadow-sm" : "border-line bg-white"}`}>
+       <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="font-extrabold text-sm text-ink">🍎 아이폰 · 아이패드 (iOS / iPadOS) 홈 화면 추가 방법</h4>
+        {detectedOS.primary==="ios" && <span className="rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold text-white">✨ 현재 접속 기기</span>}
+       </div>
+       <p className="rounded-lg bg-red-50 px-3 py-2 text-[11.5px] font-bold text-red-700 border border-red-200">
+        💡 아이폰·아이패드는 애플 보안 정책상 자동 설치 버튼이 없으며, 반드시 아래 3단계로 <strong>[홈 화면에 추가]</strong>를 눌러주셔야 진짜 앱처럼 주소창 없이 전체 화면으로 실행됩니다!
+       </p>
+       <ol className="list-decimal pl-4 space-y-1.5 text-[11.5px]">
+        <li>
+         아이폰 기본 브라우저인 <strong>[Safari(사파리) 🧭]</strong>로 이 페이지를 엽니다.<br/>
+         <span className="text-slate-500">(카카오톡에서 열렸다면 화면 우측 하단 <strong>[⋯] ➔ [Safari로 열기]</strong> 터치)</span>
+        </li>
+        <li>
+         화면 맨 아래 중앙(아이패드는 우측 상단 주소창 옆)에 있는 <strong>[공유 버튼 (네모 위로 화살표 📤)]</strong>을 터치합니다.
+        </li>
+        <li>
+         공유 메뉴를 아래로 살짝 쓸어내려 <strong>[홈 화면에 추가 (＋)]</strong>를 누른 뒤, 우측 상단 <strong>[추가]</strong>를 누르면 바탕화면에 보라색 교무실 앱이 생성됩니다!
+        </li>
+       </ol>
+      </div>
+     )}
 
      {/* 3. 맥북 / iMac */}
-     <div className={`rounded-xl border-2 p-4 space-y-2 ${detectedOS.primary==="mac" ? "border-brand bg-[#faf8fe] shadow-sm" : "border-line bg-white"}`}>
-      <div className="flex items-center justify-between">
-       <h4 className="font-extrabold text-sm text-ink">💻 맥북 · iMac (Dock · 바탕화면으로 빼기)</h4>
-       {detectedOS.primary==="mac" && <span className="rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold text-white">✨ 현재 접속 기기</span>}
+     {(installTab === "auto" || installTab === "pc") && (
+      <div className={`rounded-xl border-2 p-4 space-y-2 ${detectedOS.primary==="mac" ? "border-brand bg-[#faf8fe] shadow-sm" : "border-line bg-white"}`}>
+       <div className="flex items-center justify-between">
+        <h4 className="font-extrabold text-sm text-ink">💻 맥북 · iMac (Dock · 바탕화면 고정)</h4>
+        {detectedOS.primary==="mac" && <span className="rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold text-white">✨ 현재 접속 기기</span>}
+       </div>
+       <ol className="list-decimal pl-4 space-y-1 text-[11.5px]">
+        <li><strong>Safari(사파리) Dock 고정:</strong> 맥북 맨 위 메뉴바에서 <strong>[파일] ➔ [Dock에 추가...]</strong>를 누르거나 우측 상단 <strong>[공유(📤)] ➔ [Dock에 추가]</strong>를 클릭합니다.</li>
+        <li><strong>Chrome(크롬) 설치:</strong> 주소창 오른쪽 끝 <strong>[모니터+화살표(📥) 아이콘]</strong> 또는 우측 상단 <strong>[점 3개(⋮) ➔ 전송, 저장, 공유 ➔ 페이지를 앱으로 설치]</strong>를 클릭합니다.</li>
+       </ol>
       </div>
-      <p className="rounded-lg bg-indigo-50 px-2.5 py-1.5 text-[11px] font-bold text-indigo-800 border border-indigo-200">
-       💡 맥북은 <strong>[Dock에 추가]</strong>하거나 주소창을 바탕화면으로 끌어다 놓으면 단독 프로그램처럼 바로 열립니다!
-      </p>
-      <ol className="list-decimal pl-4 space-y-1">
-       <li><strong>Safari(사파리) Dock 고정:</strong> 맥북 맨 위 메뉴바에서 <strong>[파일] ➔ [Dock에 추가...]</strong>를 누르거나 우측 상단 <strong>[공유(📤)] ➔ [Dock에 추가]</strong>를 클릭합니다.</li>
-       <li><strong>Chrome(크롬) 설치:</strong> 주소창 오른쪽 끝 <strong>[모니터+화살표(📥) 아이콘]</strong> 또는 우측 상단 <strong>[점 3개(⋮) ➔ 전송, 저장, 공유 ➔ 페이지를 앱으로 설치]</strong>를 클릭합니다.</li>
-       <li><strong>바탕화면에 아이콘 빼기:</strong> 브라우저 주소창 왼쪽의 아이콘(또는 전체 주소)을 마우스로 잡고 <strong>맥북 바탕화면으로 드래그해서 놓으면</strong> 바로가기 아이콘이 생성됩니다!</li>
-      </ol>
-     </div>
+     )}
 
-     {/* 4. 윈도우 PC / 노트북 */}
-     <div className={`rounded-xl border-2 p-4 space-y-2 ${detectedOS.primary==="win" ? "border-brand bg-[#faf8fe] shadow-sm" : "border-line bg-white"}`}>
-      <div className="flex items-center justify-between">
-       <h4 className="font-extrabold text-sm text-ink">🖥️ 윈도우 PC · 교무실 컴퓨터 (크롬 · 엣지 · 웨일)</h4>
-       {detectedOS.primary==="win" && <span className="rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold text-white">✨ 현재 접속 기기</span>}
+     {/* 4. 윈도우 PC */}
+     {(installTab === "auto" || installTab === "pc") && (
+      <div className={`rounded-xl border-2 p-4 space-y-2 ${detectedOS.primary==="win" ? "border-brand bg-[#faf8fe] shadow-sm" : "border-line bg-white"}`}>
+       <div className="flex items-center justify-between">
+        <h4 className="font-extrabold text-sm text-ink">🖥️ 윈도우 PC · 교무실 컴퓨터 (크롬 · 엣지 · 웨일)</h4>
+        {detectedOS.primary==="win" && <span className="rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold text-white">✨ 현재 접속 기기</span>}
+       </div>
+       <ol className="list-decimal pl-4 space-y-1 text-[11.5px]">
+        <li>상단 인터넷 주소창 오른쪽 끝에 있는 <strong>[모니터+화살표(📥) 앱 설치 아이콘]</strong>을 클릭합니다.</li>
+        <li>또는 우측 상단 <strong>[점 3개(⋮) 메뉴 ➔ 저장 및 공유(앱) ➔ 페이지를 앱으로 설치]</strong>를 누르면 PC 바탕화면에 바로가기 아이콘이 생성됩니다!</li>
+       </ol>
       </div>
-      <ol className="list-decimal pl-4 space-y-1">
-       <li>상단 인터넷 주소창 오른쪽 끝에 있는 <strong>[모니터+화살표(📥) 앱 설치 아이콘]</strong>을 클릭합니다.</li>
-       <li>또는 우측 상단 <strong>[점 3개(⋮) 메뉴 ➔ 저장 및 공유(앱) ➔ 페이지를 앱으로 설치]</strong>를 누르면 PC 바탕화면에 아이콘이 생성됩니다!</li>
-       <li>간단히 바탕화면으로 빼려면 주소창 왼쪽 자물쇠/아이콘을 마우스로 끌어 <strong>PC 바탕화면에 놓으셔도</strong> 됩니다.</li>
-      </ol>
-     </div>
+     )}
     </div>
 
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
      <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
       <input
        type="checkbox"
-       className="h-4 w-4"
+       className="h-4 w-4 shrink-0"
        checked={hideInstallForever}
        onChange={e=>{
         const checked = e.target.checked;
@@ -5749,9 +6225,14 @@ const renderInstallModal = () => modal?.type==="install" && (
         else localStorage.removeItem("gyomusil-install-guide-hide");
        }}
       />
-      <span>이 기기에서 첫 접속 시 이 안내창 다시 띄우지 않기 (우측 상단 [📲 앱설치] 버튼으로 언제든 다시 열기 가능)</span>
+      <span>이 기기에서 첫 접속 시 이 안내창 다시 띄우지 않기 (상단 [📲 앱설치] 버튼으로 언제든 다시 열기 가능)</span>
      </label>
-     <Button primary onClick={()=>setModal(null)}>확인 (닫기)</Button>
+     <div className="flex gap-2">
+      <Button onClick={() => copy(window.location.href).then(() => notify("교무실 주소를 복사했습니다!"))}>
+       <Copy className="h-4 w-4"/>접속 주소 복사
+      </Button>
+      <Button primary onClick={()=>setModal(null)}>확인 (닫기)</Button>
+     </div>
     </div>
    </div>
   </Dialog>
@@ -5848,11 +6329,11 @@ const renderInstallModal = () => modal?.type==="install" && (
     {!isMasterLoginView && authMode === "register" && (
      <div className="space-y-4">
       <form className="space-y-3.5" onSubmit={handleTeacherRegister}>
-<Field label="🏫 소속 고등학교 선택 (또는 직접 추가)" id="reg-school">
-         <div className="flex gap-2">
-          <select id="reg-school" name="school" value={selectedSchool} onChange={e=>{const sc=e.target.value;setSelectedSchool(sc);localStorage.setItem("gyomusil-selected-school",sc);sharedVersionRef.current=0;pullSharedSchoolRoster(true,sc);}} className={INPUT+" font-bold text-brand"}>
-           {schoolsList.map(sc => <option key={sc} value={sc}>{sc}</option>)}
-          </select>
+       <Field label="🏫 소속 고등학교 선택 (또는 직접 추가)" id="reg-school">
+        <div className="flex gap-2">
+         <select id="reg-school" name="school" value={selectedSchool} onChange={e=>{const sc=e.target.value;setSelectedSchool(sc);localStorage.setItem("gyomusil-selected-school",sc);sharedVersionRef.current=0;pullSharedSchoolRoster(true,sc);}} className={INPUT+" font-bold text-brand"}>
+          {schoolsList.map(sc => <option key={sc} value={sc}>{sc}</option>)}
+         </select>
          <Button className="shrink-0 !px-2.5" onClick={()=>{
           const newSc = prompt("소속 고등학교 정식 명칭을 입력하세요 (예: 여수고등학교):");
           if(newSc && newSc.trim()){
@@ -5879,11 +6360,16 @@ const renderInstallModal = () => modal?.type==="install" && (
            const hrMap = data.schoolMasterData?.homeroomTeachers || {};
            const foundDept = Object.keys(hrMap).find(d => cleanMasterLabel(hrMap[d]) === val);
            if(foundDept && /^[1-3]-\d+$/.test(foundDept)){
-            const [g, c] = foundDept.split("-");
-            const gEl = document.getElementById("reg-grade");
-            const cEl = document.getElementById("reg-class");
-            if(gEl) gEl.value = g;
-            if(cEl) cEl.value = c;
+            setRegIsHomeroom(true);
+            setTimeout(() => {
+             const [g, c] = foundDept.split("-");
+             const gEl = document.getElementById("reg-grade");
+             const cEl = document.getElementById("reg-class");
+             if(gEl) gEl.value = g;
+             if(cEl) cEl.value = c;
+            }, 20);
+           } else if(Object.keys(hrMap).length > 0 && val){
+            setRegIsHomeroom(false);
            }
           }}
          />
@@ -5891,14 +6377,14 @@ const renderInstallModal = () => modal?.type==="install" && (
           {Object.keys(data.schoolMasterData?.teachers || {}).sort((a,b)=>a.localeCompare(b,"ko")).map(t => {
            const hrMap = data.schoolMasterData?.homeroomTeachers || {};
            const hrDept = Object.keys(hrMap).find(d => cleanMasterLabel(hrMap[d]) === t);
-           return <option key={t} value={t}>{hrDept ? `${t} (${hrDept} 담임)` : `${t} (교과)`}</option>;
+           return <option key={t} value={t}>{hrDept ? `${t} (${hrDept} 담임)` : `${t} (비담임 교과)`}</option>;
           })}
          </datalist>
         </Field>
        </div>
        {Object.keys(data.schoolMasterData?.teachers || {}).length > 0 && (
         <div className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-2.5">
-         <p className="mb-1.5 text-[11px] font-bold text-brand">👆 내 이름을 클릭하면 시간표·담임반이 자동 연결됩니다:</p>
+         <p className="mb-1.5 text-[11px] font-bold text-brand">👆 내 이름을 클릭하면 담임 여부와 학년·반이 자동 판별됩니다:</p>
          <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto">
           {Object.keys(data.schoolMasterData.teachers).sort((a,b)=>a.localeCompare(b,"ko")).map(t => {
            const hrMap = data.schoolMasterData?.homeroomTeachers || {};
@@ -5910,16 +6396,21 @@ const renderInstallModal = () => modal?.type==="install" && (
              const nameEl = document.getElementById("reg-name");
              if(nameEl) nameEl.value = t;
              if(hrDept && /^[1-3]-\d+$/.test(hrDept)){
-              const [g, c] = hrDept.split("-");
-              const gEl = document.getElementById("reg-grade");
-              const cEl = document.getElementById("reg-class");
-              if(gEl) gEl.value = g;
-              if(cEl) cEl.value = c;
+              setRegIsHomeroom(true);
+              setTimeout(() => {
+               const [g, c] = hrDept.split("-");
+               const gEl = document.getElementById("reg-grade");
+               const cEl = document.getElementById("reg-class");
+               if(gEl) gEl.value = g;
+               if(cEl) cEl.value = c;
+              }, 20);
+             } else if(Object.keys(hrMap).length > 0){
+              setRegIsHomeroom(false);
              }
             }}
             className="rounded-md border border-[#dcd3ee] bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:border-brand hover:bg-[#eee9fa] hover:text-brand"
            >
-            {t}{hrDept ? `(${hrDept}담임)` : ""}
+            {t}{hrDept ? `(${hrDept}담임)` : "(교과)"}
            </button>;
           })}
          </div>
@@ -5927,10 +6418,29 @@ const renderInstallModal = () => modal?.type==="install" && (
        )}
        <Field label="비밀번호 (6자 이상)" id="reg-pw"><input id="reg-pw" name="password" type="password" required placeholder="6자리 이상 입력" className={INPUT}/></Field>
        <Field label="이메일 (비밀번호 찾기·임시비번 수령용)" id="reg-email"><input id="reg-email" name="email" type="email" required placeholder="example@korea.kr" className={INPUT}/></Field>
-       <div className="grid grid-cols-2 gap-3">
-        <Field label="담당 학년 (담임 자동입력)" id="reg-grade"><input id="reg-grade" name="grade" type="number" min="1" max="6" defaultValue="1" className={INPUT}/></Field>
-        <Field label="담당 반 (담임 자동입력)" id="reg-class"><input id="reg-class" name="classroom" type="number" min="1" max="99" defaultValue="1" className={INPUT}/></Field>
+
+       {/* 담임교사 여부 체크박스 + 체크 시에만 학년·반 활성화 */}
+       <div className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-3 space-y-3">
+        <label className="flex items-center gap-2.5 text-xs font-bold text-ink cursor-pointer">
+         <input
+          type="checkbox"
+          name="homeroom"
+          className="h-4 w-4"
+          checked={regIsHomeroom}
+          onChange={e => setRegIsHomeroom(e.target.checked)}
+         />
+         <span>🏫 담임교사입니다 (비담임·교과전담 선생님은 체크 해제해 주세요)</span>
+        </label>
+        <div className={`grid grid-cols-2 gap-3 transition-opacity ${regIsHomeroom ? "opacity-100" : "opacity-40 pointer-events-none"}`}>
+         <Field label={regIsHomeroom ? "담당 학년" : "담당 학년 (비담임 비활성)"} id="reg-grade">
+          <input id="reg-grade" name="grade" type="number" min="1" max="6" defaultValue="1" disabled={!regIsHomeroom} className={INPUT+" disabled:bg-slate-100"}/>
+         </Field>
+         <Field label={regIsHomeroom ? "담당 반" : "담당 반 (비담임 비활성)"} id="reg-class">
+          <input id="reg-class" name="classroom" type="number" min="1" max="99" defaultValue="1" disabled={!regIsHomeroom} className={INPUT+" disabled:bg-slate-100"}/>
+         </Field>
+        </div>
        </div>
+
        <button type="submit" disabled={authBusy} className="w-full min-h-[46px] rounded-xl bg-brand text-sm font-bold text-white hover:bg-[#54419f]">
         {authBusy ? "처리 중..." : `[${selectedSchool}] 교사 계정 신청하기`}
        </button>
@@ -5986,7 +6496,38 @@ const renderInstallModal = () => modal?.type==="install" && (
    </div>
    <div className="mt-2 flex items-center justify-between"><span className="text-sm font-semibold">{currentUser?.name || data.profile.teacher || (data.profile.homeroom?className:"교과 담당 교사")}</span><button type="button" aria-label="학교·학급 설정" className="p-1 text-slate-500" onClick={()=>{setDrawer(false);setModal({type:"profile"});}}><Settings className="h-4 w-4"/></button></div>
   </div>
-  <nav aria-label="주 메뉴" className="flex-1 overflow-y-auto px-3">{nav.map(([title,items])=><div key={title} className="mb-5"><p className="mb-2 px-3 text-[10px] font-semibold text-slate-500">{title}</p>{items.map(([name,Icon])=><button type="button" key={name} aria-current={page===name?"page":undefined} onClick={()=>go(name)} className={`mb-1 flex min-h-[44px] w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] ${page===name?"bg-[#eee9fa] font-semibold text-brand":"text-slate-600 hover:bg-paper"}`}><Icon className="h-[17px] w-[17px] shrink-0"/>{name}{["과정안·학습지","매일 문해력","기출 문제은행"].includes(name)&&<span className="ml-auto text-[9px]">AI</span>}</button>)}</div>)}</nav>
+<nav aria-label="주 메뉴" className="flex-1 overflow-y-auto px-3">
+   {nav.map(([title,items], catIdx)=>(
+    <div key={title} className="mb-5">
+     <div className="mb-1.5 flex items-center justify-between px-3">
+      <p className="text-[10px] font-bold text-slate-500 whitespace-nowrap">{title}</p>
+      <div className="flex items-center gap-0.5">
+       <button
+        type="button"
+        disabled={catIdx === 0}
+        onClick={() => moveNavCategory(catIdx, -1)}
+        title="이 카테고리 위로 이동"
+        className="rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-paper hover:text-brand disabled:opacity-25"
+       >▲</button>
+       <button
+        type="button"
+        disabled={catIdx === nav.length - 1}
+        onClick={() => moveNavCategory(catIdx, 1)}
+        title="이 카테고리 아래로 이동"
+        className="rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-paper hover:text-brand disabled:opacity-25"
+       >▼</button>
+      </div>
+     </div>
+     {items.map(([name,Icon])=>(
+      <button type="button" key={name} aria-current={page===name?"page":undefined} onClick={()=>go(name)} className={`mb-1 flex min-h-[44px] w-full items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-left text-[13px] tracking-tight ${page===name?"bg-[#eee9fa] font-semibold text-brand":"text-slate-600 hover:bg-paper"}`}>
+       <Icon className="h-[17px] w-[17px] shrink-0"/>
+       <span className="truncate">{name}</span>
+       {["과정안·학습지","매일 문해력","기출 문제은행"].includes(name)&&<span className="ml-auto shrink-0 rounded bg-[#f0ecfa] px-1.5 py-0.5 text-[9px] font-bold text-brand">AI</span>}
+      </button>
+     ))}
+    </div>
+   ))}
+  </nav>
   <div className="flex min-h-[64px] flex-col justify-center border-t border-line px-5 text-left text-xs text-slate-600">
    <span className="flex items-center gap-2 font-semibold text-ink"><Cloud className="h-4 w-4 shrink-0 text-brand"/><span className="truncate">{cloudStatus}</span></span>
    <span className="mt-0.5 truncate text-[10px] text-emerald-700">🏫 {sharedSyncStatus}</span>
@@ -7255,34 +7796,34 @@ const renderInstallModal = () => modal?.type==="install" && (
    </>}
 
 {page==="출결·제출물 관리"&&<>
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-     <div className="inline-flex min-h-[44px] flex-wrap items-center gap-1 rounded-lg border border-line bg-white p-1 shadow-soft">
-      {["출결","월별 출결·AI 분석","제출물","🔄 수업교체·보강","📍 이동수업 실시간 위치","🪑 자리배치·모둠","🧹 1인1역·청소순환"].map(x=>{
-       const myName = (currentUser?.name || data.profile.teacher || "").trim();
-       const pendingCnt = x==="🔄 수업교체·보강" ? swapRequests.filter(r => r.status==="pending" && ((r.type!=="perm_swap" && r.toTeacher===myName) || (r.type==="perm_swap" && currentUser?.role==="master"))).length : 0;
-       return <button type="button" key={x} onClick={()=>{setClassTab(x);if(x==="출결")detectCurrentClass(data);if(x==="🔄 수업교체·보강"){loadAccountsChannel();pullSharedSchoolRoster(true);}}} className={`inline-flex h-[34px] items-center justify-center gap-1.5 rounded-md px-3.5 text-[13px] font-medium transition-colors ${classTab===x?"bg-[#eee9fa] font-semibold text-brand":"text-slate-500 hover:bg-paper"}`}>
-        <span>{x}</span>
-        {pendingCnt>0 && <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{pendingCnt}</span>}
-       </button>;
-      })}
-     </div>
-     <div className="flex flex-wrap items-center gap-2">
-      {["출결","월별 출결·AI 분석","제출물"].includes(classTab)&&(
-       <Button className="h-[44px]" onClick={()=>setModal({type:activeClassId==="homeroom"?"roster":"classRoster",classId:activeClassId})}><Edit className="h-4 w-4"/>현재 선택반 명단 관리 (CSV)</Button>
-      )}
-      <div className="relative inline-flex items-center">
-       {classTab!=="시간표·교과반 설정" && (!Object.keys(data.timetable||{}).length && (data.subjectClasses||[]).length<=1) && (
-        <div className="pointer-events-none absolute -top-9 right-0 z-10 whitespace-nowrap rounded-lg border border-[#dcd3ee] bg-[#faf8fe] px-2.5 py-1 text-[11px] font-semibold text-brand shadow-sm">
-         💡 먼저 시간표와 교과반 명단을 설정해 놓으세요!
-         <span className="absolute -bottom-1 right-6 h-2 w-2 rotate-45 border-b border-r border-[#dcd3ee] bg-[#faf8fe]"/>
-        </div>
+     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex max-w-full overflow-x-auto no-scrollbar min-h-[44px] items-center gap-1 rounded-lg border border-line bg-white p-1 shadow-soft">
+       {["출결","월별 출결·AI 분석","제출물","🔄 수업교체·보강","📍 이동수업 실시간 위치","🪑 자리배치·모둠","🧹 1인1역·청소순환"].map(x=>{
+        const myName = (currentUser?.name || data.profile.teacher || "").trim();
+        const pendingCnt = x==="🔄 수업교체·보강" ? swapRequests.filter(r => r.status==="pending" && ((r.type!=="perm_swap" && r.toTeacher===myName) || (r.type==="perm_swap" && currentUser?.role==="master"))).length : 0;
+        return <button type="button" key={x} onClick={()=>{setClassTab(x);if(x==="출결")detectCurrentClass(data);if(x==="🔄 수업교체·보강"){loadAccountsChannel();pullSharedSchoolRoster(true);}}} className={`inline-flex h-[34px] shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-md px-3 text-[12.5px] font-medium transition-colors ${classTab===x?"bg-[#eee9fa] font-semibold text-brand":"text-slate-500 hover:bg-paper"}`}>
+         <span className="whitespace-nowrap">{x}</span>
+         {pendingCnt>0 && <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{pendingCnt}</span>}
+        </button>;
+       })}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+       {["출결","월별 출결·AI 분석","제출물"].includes(classTab)&&(
+        <Button className="h-[44px] whitespace-nowrap" onClick={()=>setModal({type:activeClassId==="homeroom"?"roster":"classRoster",classId:activeClassId})}><Edit className="h-4 w-4"/>현재 선택반 명단 관리 (CSV)</Button>
        )}
-       <Button className="h-[44px]" primary={classTab==="시간표·교과반 설정"} onClick={()=>setClassTab(classTab==="시간표·교과반 설정"?"출결":"시간표·교과반 설정")}>
-        <Settings className="h-4 w-4"/>{classTab==="시간표·교과반 설정"?"← 출결 화면으로 돌아가기":"시간표·교과반 설정"}
-       </Button>
+       <div className="relative inline-flex items-center">
+        {classTab!=="시간표·교과반 설정" && (!Object.keys(data.timetable||{}).length && (data.subjectClasses||[]).length<=1) && (
+         <div className="pointer-events-none absolute -top-9 right-0 z-10 whitespace-nowrap rounded-lg border border-[#dcd3ee] bg-[#faf8fe] px-2.5 py-1 text-[11px] font-semibold text-brand shadow-sm">
+          💡 먼저 시간표와 교과반 명단을 설정해 놓으세요!
+          <span className="absolute -bottom-1 right-6 h-2 w-2 rotate-45 border-b border-r border-[#dcd3ee] bg-[#faf8fe]"/>
+         </div>
+        )}
+        <Button className="h-[44px] whitespace-nowrap" primary={classTab==="시간표·교과반 설정"} onClick={()=>setClassTab(classTab==="시간표·교과반 설정"?"출결":"시간표·교과반 설정")}>
+         <Settings className="h-4 w-4"/>{classTab==="시간표·교과반 설정"?"← 출결 화면으로 돌아가기":"시간표·교과반 설정"}
+        </Button>
+       </div>
       </div>
      </div>
-    </div>
 
     {classTab==="📍 이동수업 실시간 위치" && (()=>{
      const em = data.electiveMatrix || {headers:["A타임","B타임","C타임","D타임"],rows:[],periodSlotMap:{}};
@@ -8331,9 +8872,14 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
         </select>
        </Field>
        <Field label="3. 출결 체크할 수업반 (수업 교체·보강 시에도 자동 선택됨)" id="att-class-picker">
-        <select id="att-class-picker" className={INPUT+" font-semibold text-brand"} value={activeClassId} onChange={e=>setActiveClassId(e.target.value)}>
-         <option value="homeroom">🏫 우리반 담임 명렬 ({className} · {data.students.length}명)</option>
+        <select id="att-class-picker" className={INPUT+" font-semibold text-brand"} value={(!data.profile.homeroom && activeClassId==="homeroom") ? ((data.subjectClasses||[]).find(c=>c.id!=="homeroom")?.id || "") : activeClassId} onChange={e=>setActiveClassId(e.target.value)}>
+         {data.profile.homeroom && (
+          <option value="homeroom">🏫 우리반 담임 명렬 ({className} · {data.students.length}명)</option>
+         )}
          {(data.subjectClasses||[]).filter(c=>c.id!=="homeroom").map(c=><option key={c.id} value={c.id}>📘 {c.name} ({c.subject||"교과"} · {(c.students||[]).length}명)</option>)}
+         {!data.profile.homeroom && (data.subjectClasses||[]).filter(c=>c.id!=="homeroom").length===0 && (
+          <option value="">등록된 교과 수업반이 없습니다 (시간표·교과반 설정에서 등록)</option>
+         )}
         </select>
        </Field>
       </div>
@@ -8594,17 +9140,19 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
         </form>
        </div>
        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <div className="rounded-xl border-2 border-[#dcd3ee] bg-[#faf8fe] p-4 flex flex-col justify-between">
-         <div>
-          <Tag>담임 기본 학급</Tag>
-          <h3 className="mt-2 font-bold text-sm">우리반 담임 명렬 ({className})</h3>
-          <p className="mt-1 text-xs text-slate-500">등록 학생: {data.students.length}명</p>
+        {data.profile.homeroom && (
+         <div className="rounded-xl border-2 border-[#dcd3ee] bg-[#faf8fe] p-4 flex flex-col justify-between">
+          <div>
+           <Tag>담임 기본 학급</Tag>
+           <h3 className="mt-2 font-bold text-sm">우리반 담임 명렬 ({className})</h3>
+           <p className="mt-1 text-xs text-slate-500">등록 학생: {data.students.length}명</p>
+          </div>
+          <div className="mt-4 flex gap-2">
+           <Button primary className="flex-1" onClick={()=>setModal({type:"roster"})}><Edit className="h-3.5 w-3.5"/>명단 수정·CSV 업로드</Button>
+           <Button onClick={()=>{setActiveClassId("homeroom");setClassTab("출결");}}>출결 열기</Button>
+          </div>
          </div>
-         <div className="mt-4 flex gap-2">
-          <Button primary className="flex-1" onClick={()=>setModal({type:"roster"})}><Edit className="h-3.5 w-3.5"/>명단 수정·CSV 업로드</Button>
-          <Button onClick={()=>{setActiveClassId("homeroom");setClassTab("출결");}}>출결 열기</Button>
-         </div>
-        </div>
+        )}
         {(data.subjectClasses||[]).filter(c=>c.id!=="homeroom").map(c=><div key={c.id} className="rounded-xl border border-line bg-white p-4 flex flex-col justify-between">
          <div>
           <div className="flex items-center justify-between">
@@ -8675,9 +9223,11 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
     )}
 
     {classTab==="월별 출결·AI 분석" && (()=>{
-     const currentClassObj = activeClassId==="homeroom" ? {id:"homeroom",name:`우리반 (${className})`,students:data.students} : ((data.subjectClasses||[]).find(c=>c.id===activeClassId) || {id:"homeroom",name:`우리반 (${className})`,students:data.students});
-     const isHomeroom = currentClassObj.id==="homeroom";
-     const targetStudents = isHomeroom ? data.students : (currentClassObj.students||[]);
+const nonHrList = (data.subjectClasses||[]).filter(c=>c.id!=="homeroom");
+      const effectiveClassId = (!data.profile.homeroom && activeClassId==="homeroom") ? (nonHrList[0]?.id || "") : activeClassId;
+      const currentClassObj = (data.profile.homeroom && effectiveClassId==="homeroom") ? {id:"homeroom",name:`우리반 (${className})`,students:data.students} : (nonHrList.find(c=>c.id===effectiveClassId) || nonHrList[0] || {id:"empty",name:"교과 수업반 미선택",students:[]});
+      const isHomeroom = data.profile.homeroom && currentClassObj.id==="homeroom";
+      const targetStudents = isHomeroom ? data.students : (currentClassObj.students||[]);
      const monthDates = isHomeroom
       ? Object.keys(data.attendance).filter(d=>d.startsWith(attMonth)).sort()
       : Object.keys(data.classAttendance?.[activeClassId]||{}).filter(k=>k.startsWith(attMonth)).sort();
@@ -9053,7 +9603,7 @@ const getStatus = (stuId) => isHomeroom
      return <div className="space-y-6">
       {/* 상단 요약 배너 및 5대 담임 탭 네비게이션 */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-[#dcd3ee] bg-gradient-to-r from-[#f6f2ff] via-[#faf8fe] to-white p-4 shadow-soft">
-       <div className="flex flex-wrap items-center gap-1.5">
+       <div className="flex max-w-full overflow-x-auto no-scrollbar items-center gap-1.5 pb-0.5">
         {[
          ["👥 학적·출결증빙", `👥 학적 이동·명렬 (${activeStuCount}명)`],
          ["💬 누적 상담일지", `💬 누적 상담일지 (${(data.notes||[]).length}건)`],
@@ -9072,18 +9622,18 @@ const getStatus = (stuId) => isHomeroom
             setHomeroomTab(tabKey);
            }
           }}
-          className={`rounded-xl px-3.5 py-2 text-xs font-extrabold transition-all ${homeroomTab === tabKey ? "bg-brand text-white shadow-sm" : "bg-white text-slate-600 border border-line hover:border-brand"}`}
+          className={`shrink-0 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-extrabold transition-all ${homeroomTab === tabKey ? "bg-brand text-white shadow-sm" : "bg-white text-slate-600 border border-line hover:border-brand"}`}
          >
           {tabLabel}
          </button>
         ))}
        </div>
        <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="rounded-lg bg-white border border-line px-2.5 py-1 font-bold text-ink">
+        <span className="whitespace-nowrap rounded-lg bg-white border border-line px-2.5 py-1 font-bold text-ink">
          재학 <strong className="text-brand">{activeStuCount}명</strong>
          {leaverStuCount > 0 && <span className="ml-1.5 text-red-600">· 전출/자퇴 {leaverStuCount}명</span>}
         </span>
-        <Button className="!min-h-[36px] !px-3 !py-1 !text-xs" onClick={()=>setModal({type:"roster"})}>
+        <Button className="!min-h-[36px] !px-3 !py-1 !text-xs whitespace-nowrap" onClick={()=>setModal({type:"roster"})}>
          <Edit className="h-3.5 w-3.5"/>우리반 명렬 일괄편집(CSV)
         </Button>
        </div>
@@ -9731,8 +10281,8 @@ const getStatus = (stuId) => isHomeroom
 </footer>
    </main>
 
-   {/* 📱 모바일 전용 하단 고정 네비게이션 바 (담임 설정 시 '담임·상담' 탭 자동 포함 · lg 이상 데스크톱에서는 자동 숨김) */}
-    <nav aria-label="모바일 하단 빠른 메뉴" className="fixed bottom-0 inset-x-0 z-30 flex h-[66px] items-center justify-around border-t border-[#dcd3ee] bg-white/95 px-1.5 backdrop-blur lg:hidden shadow-[0_-4px_16px_rgba(35,32,65,0.08)]">
+   {/* 📱 모바일 전용 하단 고정 네비게이션 바 (아이폰 홈 바 여백 대응 및 글자 걸침 방지) */}
+    <nav aria-label="모바일 하단 빠른 메뉴" className="fixed bottom-0 inset-x-0 z-30 flex min-h-[66px] items-center justify-around border-t border-[#dcd3ee] bg-white/95 px-1 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur lg:hidden shadow-[0_-4px_16px_rgba(35,32,65,0.08)]">
      {[
       ["오늘의 교무실", "홈·현황", Home],
       ["출결·제출물 관리", "출결체크", User],
@@ -9749,10 +10299,10 @@ const getStatus = (stuId) => isHomeroom
         if(targetPage === "출결·제출물 관리") setClassTab("출결");
         go(targetPage);
        }}
-       className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1.5 text-[11px] font-bold transition-all ${active ? "bg-[#f4f1fa] text-brand" : "text-slate-500"}`}
+       className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10.5px] font-bold tracking-tighter transition-all ${active ? "bg-[#f4f1fa] text-brand" : "text-slate-500"}`}
       >
-       <Icon className={`h-5 w-5 ${active ? "text-brand stroke-[2.5]" : "text-slate-400"}`}/>
-       <span>{shortLabel}</span>
+       <Icon className={`h-5 w-5 shrink-0 ${active ? "text-brand stroke-[2.5]" : "text-slate-400"}`}/>
+       <span className="whitespace-nowrap leading-none">{shortLabel}</span>
       </button>
      );
     })}
@@ -10375,15 +10925,20 @@ const getStatus = (stuId) => isHomeroom
       </div>
      </div>
 
-     {/* 학년별 반 수 세팅 및 표준 양식 다운로드 */}
+     {/* 학년별 반 수 · 선택타임 · 특별실 여유 열 세팅 및 표준 양식 다운로드 */}
      <div className="rounded-xl border border-purple-400/40 bg-slate-800 p-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-       <span className="text-xs font-bold text-purple-300">📐 1단계: 우리 학교 학년별 학급 수 · 선택타임 설정 후 통합 양식 내려받기</span>
-       <Button primary className="!min-h-[38px] !px-4 !text-xs" onClick={downloadCustomSchoolStandardExcel}>
-        <Download className="h-4 w-4"/>📥 ① 통합 표준 엑셀(.xlsx) 양식 다운로드
+       <div>
+        <span className="text-xs font-bold text-purple-300">📐 1단계: 학년별 학급 수 · 선택타임(A~M) · 특별실 열 설정 후 통합 양식 내려받기</span>
+        <p className="mt-0.5 text-[11px] text-slate-300">
+         양식 내 <strong>[2학년_선택과목장소], [3학년_선택과목장소]</strong> 시트(`1(장월규)`~`7(서영호)` + 특별실 열)에 장소를 적으면 수업시간표와 다르더라도 <strong>장소 시트 기준으로 교사 시간표에 교실/특별실이 최우선 표시</strong>됩니다!
+        </p>
+       </div>
+       <Button primary className="!min-h-[38px] !px-4 !text-xs shrink-0" onClick={downloadCustomSchoolStandardExcel}>
+        <Download className="h-4 w-4"/>📥 ① 통합 표준 엑셀(.xlsx) 양식 다운로드 (2·3학년 장소시트 포함)
        </Button>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 text-xs">
        <div>
         <label className="mb-1 block text-[11px] text-slate-300">1학년 학급 수</label>
         <input type="number" min="1" max="20" value={templateConfig.g1} onChange={e=>setTemplateConfig({...templateConfig,g1:Number(e.target.value)||1})} className="w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-1.5 text-xs font-bold text-white"/>
@@ -10398,7 +10953,11 @@ const getStatus = (stuId) => isHomeroom
        </div>
        <div>
         <label className="mb-1 block text-[11px] text-slate-300">선택과목 타임 코드</label>
-        <input type="text" value={templateConfig.slots} onChange={e=>setTemplateConfig({...templateConfig,slots:e.target.value})} placeholder="A,B,C,D" className="w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-1.5 text-xs font-bold text-white"/>
+        <input type="text" value={templateConfig.slots} onChange={e=>setTemplateConfig({...templateConfig,slots:e.target.value})} placeholder="A,B,C,D,E,F,G,H,I,J,K,L,M" className="w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-1.5 text-xs font-bold text-white"/>
+       </div>
+       <div>
+        <label className="mb-1 block text-[11px] text-slate-300">특별실 열 목록 (쉼표 구분)</label>
+        <input type="text" value={templateConfig.specialRooms || ""} onChange={e=>setTemplateConfig({...templateConfig,specialRooms:e.target.value})} placeholder="사회과실,미술실,음악실,과학실1..." className="w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-1.5 text-xs font-bold text-white"/>
        </div>
       </div>
      </div>
