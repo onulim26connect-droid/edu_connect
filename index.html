@@ -752,68 +752,58 @@ function ScheduleCalendar({events=[],tasks=[],selectedDate,onSelectDate,mode,onM
  const selEvs = dayEvents(selectedDate), selTks = dayTasks(selectedDate);
 
  return <div className="flex flex-1 flex-col justify-between space-y-3">
-  {/* 상단 네비게이션: 모바일 중앙 정렬 + 월간/주간/일간 우측 정렬 */}
-  <div className="flex flex-wrap items-center justify-between gap-2">
-   <div className="flex w-full sm:w-auto items-center justify-center sm:justify-start gap-1 shrink-0">
-    <Button className="!px-2.5 !py-1 !min-h-[34px] !text-xs whitespace-nowrap" onClick={()=>moveDate(-1)}>◀ 이전</Button>
-    <span className="px-2 text-xs sm:text-sm font-extrabold text-ink whitespace-nowrap text-center">
+  {/* 상단 네비게이션: 이전/년월/다음 가운데 정렬 (오늘 버튼 제거) + 월간/주간/일간 토글 */}
+  <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5">
+   <div className="flex w-full sm:w-auto items-center justify-center gap-2 shrink-0">
+    <Button className="!px-3 !py-1 !min-h-[34px] !text-xs whitespace-nowrap" onClick={()=>moveDate(-1)}>◀ 이전</Button>
+    <span className="min-w-[130px] px-2 text-sm font-extrabold text-ink whitespace-nowrap text-center">
      {mode==="월간"?`${y}년 ${m+1}월`:mode==="주간"?`${weekDays[0].slice(5)} ~ ${weekDays[6].slice(5)}`:dateLabel(selectedDate)}
     </span>
-    <Button className="!px-2.5 !py-1 !min-h-[34px] !text-xs whitespace-nowrap" onClick={()=>moveDate(1)}>다음 ▶</Button>
-    <Button className="!px-2 !py-1 !min-h-[34px] !text-xs text-brand whitespace-nowrap" onClick={()=>onSelectDate(day())}>오늘</Button>
+    <Button className="!px-3 !py-1 !min-h-[34px] !text-xs whitespace-nowrap" onClick={()=>moveDate(1)}>다음 ▶</Button>
    </div>
-   <div className="ml-auto flex gap-1 rounded-lg border border-line bg-paper p-1 shrink-0">
-    {["월간","주간","일간"].map(k=><button type="button" key={k} onClick={()=>onModeChange(k)} className={`whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-bold transition-colors ${mode===k?"bg-brand text-white shadow-sm":"text-slate-600 hover:bg-white"}`}>{k}</button>)}
+   <div className="flex gap-1 rounded-lg border border-line bg-paper p-1 shrink-0">
+    {["월간","주간","일간"].map(k=><button type="button" key={k} onClick={()=>onModeChange(k)} className={`whitespace-nowrap rounded-md px-3 py-1 text-xs font-bold transition-colors ${mode===k?"bg-brand text-white shadow-sm":"text-slate-600 hover:bg-white"}`}>{k}</button>)}
    </div>
   </div>
 
   {mode==="일간" && (
-   <div className="space-y-3">
-    <div className="flex items-center justify-between rounded-xl bg-[#faf8fe] px-3.5 py-2 border border-[#dcd3ee]">
-     <span className="text-xs font-bold text-brand">📌 {dateLabel(selectedDate)} 상세 일정</span>
-     <div className="flex gap-1.5">
-      <button type="button" onClick={()=>onModeChange("주간")} className="rounded-md bg-white border border-line px-2 py-1 text-[11px] font-semibold text-slate-600">주간 보기</button>
-      <button type="button" onClick={()=>onModeChange("월간")} className="rounded-md bg-brand px-2 py-1 text-[11px] font-semibold text-white">월간 달력으로</button>
+   <div className="grid flex-1 gap-3 md:grid-cols-2">
+    <div className="rounded-xl border border-line bg-[#faf9fd] p-3.5">
+     <div className="mb-2.5 flex items-center justify-between">
+      <h4 className="text-xs font-bold text-brand">📅 일정 ({selEvs.length}건)</h4>
+      {onEditEvent && <button type="button" onClick={()=>onEditEvent({date:selectedDate})} className="rounded-md bg-brand px-2 py-1 text-[11px] font-bold text-white">+ 일정 추가</button>}
      </div>
+     {selEvs.length ? <div className="space-y-2">{selEvs.map(e=><div key={e.id} onClick={()=>onEditEvent&&onEditEvent(e)} className="cursor-pointer rounded-lg border border-line bg-white p-2.5 hover:border-brand"><span className="text-xs font-bold text-brand">{e.time}</span> <span className="ml-1 text-xs text-slate-400">[{e.category}]</span><p className="mt-0.5 text-sm font-medium">{e.title}</p></div>)}</div> : <p className="py-4 text-center text-xs text-slate-400">등록된 일정이 없습니다.</p>}
     </div>
-    <div className="grid flex-1 gap-3 md:grid-cols-2">
-     <div className="rounded-xl border border-line bg-[#faf9fd] p-3.5">
-      <h4 className="mb-2.5 text-xs font-bold text-brand">📅 일정 ({selEvs.length}건)</h4>
-      {selEvs.length ? <div className="space-y-2">{selEvs.map(e=><div key={e.id} onClick={()=>onEditEvent&&onEditEvent(e)} className="cursor-pointer rounded-lg border border-line bg-white p-2.5 hover:border-brand"><span className="text-xs font-bold text-brand">{e.time}</span> <span className="ml-1 text-xs text-slate-400">[{e.category}]</span><p className="mt-0.5 text-sm font-medium">{e.title}</p></div>)}</div> : <p className="text-xs text-slate-400">등록된 일정이 없습니다.</p>}
+    <div className="rounded-xl border border-line bg-[#faf9fd] p-3.5">
+     <div className="mb-2.5 flex items-center justify-between">
+      <h4 className="text-xs font-bold text-emerald-700">☑️ 할 일 마감 ({selTks.length}건)</h4>
+      {onEditTask && <button type="button" onClick={()=>onEditTask({date:selectedDate})} className="rounded-md border border-[#dcd3ee] bg-white px-2 py-1 text-[11px] font-bold text-[#493b7a]">+ 할 일 추가</button>}
      </div>
-     <div className="rounded-xl border border-line bg-[#faf9fd] p-3.5">
-      <h4 className="mb-2.5 text-xs font-bold text-emerald-700">☑️ 할 일 마감 ({selTks.length}건)</h4>
-      {selTks.length ? <div className="space-y-2">{selTks.map(t=><div key={t.id} className="flex items-center gap-2 rounded-lg border border-line bg-white p-2.5"><input type="checkbox" checked={!!t.done} onChange={()=>onToggleTask&&onToggleTask(t.id)} className="h-4 w-4 shrink-0"/><span onClick={()=>onEditTask&&onEditTask(t)} className={`flex-1 cursor-pointer text-sm truncate ${t.done?"line-through text-slate-400":""}`}>{t.title}</span><Tag>{t.category}</Tag></div>)}</div> : <p className="text-xs text-slate-400">마감인 할 일이 없습니다.</p>}
-     </div>
+     {selTks.length ? <div className="space-y-2">{selTks.map(t=><div key={t.id} className="flex items-center gap-2 rounded-lg border border-line bg-white p-2.5"><input type="checkbox" checked={!!t.done} onChange={()=>onToggleTask&&onToggleTask(t.id)} className="h-4 w-4 shrink-0"/><span onClick={()=>onEditTask&&onEditTask(t)} className={`flex-1 cursor-pointer text-sm truncate ${t.done?"line-through text-slate-400":""}`}>{t.title}</span><Tag>{t.category}</Tag></div>)}</div> : <p className="py-4 text-center text-xs text-slate-400">마감인 할 일이 없습니다.</p>}
     </div>
    </div>
   )}
 
   {mode==="주간" && (
-   <div className="space-y-2.5">
-    <div className="flex items-center justify-between rounded-xl bg-[#faf8fe] px-3.5 py-2 border border-[#dcd3ee]">
-     <span className="text-xs font-bold text-brand">📅 {weekDays[0].slice(5)} ~ {weekDays[6].slice(5)} 주간 일정 (날짜 클릭 시 일간 상세)</span>
-     <button type="button" onClick={()=>onModeChange("월간")} className="rounded-md bg-brand px-2.5 py-1 text-[11px] font-semibold text-white">월간 달력으로</button>
-    </div>
-    <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-7">
-     {weekDays.map((d,i)=>{
-      const evs=dayEvents(d), tks=dayTasks(d), isSel=d===selectedDate, isToday=d===day();
-      return <div key={d} onClick={()=>{onSelectDate(d);onModeChange("일간");}} className={`flex sm:min-h-[170px] flex-col cursor-pointer rounded-xl border p-2.5 transition-all ${isSel?"border-2 border-brand bg-[#faf8fe]":"border-line bg-white hover:bg-paper"}`}>
-       <div className="mb-1.5 flex items-center justify-between border-b border-line/60 pb-1">
-        <span className={`text-xs font-bold ${i===0?"text-red-600":i===6?"text-blue-600":"text-slate-700"}`}>{dayNames[i]} ({Number(d.slice(8))}일)</span>
-        <div className="flex items-center gap-1">
-         {isToday&&<span className="rounded bg-brand px-1.5 py-0.5 text-[10px] font-bold text-white">오늘</span>}
-         <span className="text-[10px] text-slate-400 sm:hidden">{evs.length+tks.length}건 ›</span>
-        </div>
+   <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-7">
+    {weekDays.map((d,i)=>{
+     const evs=dayEvents(d), tks=dayTasks(d), isSel=d===selectedDate, isToday=d===day();
+     return <div key={d} onClick={()=>{onSelectDate(d);onModeChange("일간");}} className={`flex sm:min-h-[170px] flex-col cursor-pointer rounded-xl border p-2.5 transition-all ${isSel?"border-2 border-brand bg-[#faf8fe]":"border-line bg-white hover:bg-paper"}`}>
+      <div className="mb-1.5 flex items-center justify-between border-b border-line/60 pb-1">
+       <span className={`text-xs font-bold ${i===0?"text-red-600":i===6?"text-blue-600":"text-slate-700"}`}>{dayNames[i]} ({Number(d.slice(8))}일)</span>
+       <div className="flex items-center gap-1">
+        {isToday&&<span className="rounded bg-brand px-1.5 py-0.5 text-[10px] font-bold text-white">오늘</span>}
+        <span className="text-[10px] text-slate-400 sm:hidden">{evs.length+tks.length}건 ›</span>
        </div>
-       <div className="flex-1 space-y-1">
-        {evs.map(e=><div key={e.id} className="truncate rounded bg-[#eee9fa] px-2 py-1 text-[11px] font-semibold text-brand" title={e.title}>📅 {e.title}</div>)}
-        {tks.map(t=><div key={t.id} className={`truncate rounded px-2 py-1 text-[11px] ${t.done?"bg-slate-100 text-slate-400 line-through":"bg-emerald-50 font-medium text-emerald-800"}`} title={t.title}>☑️ {t.title}</div>)}
-        {!evs.length&&!tks.length&&<p className="py-1 sm:py-6 text-center text-[11px] text-slate-300">일정 없음</p>}
-       </div>
-      </div>;
-     })}
-    </div>
+      </div>
+      <div className="flex-1 space-y-1">
+       {evs.map(e=><div key={e.id} className="truncate rounded bg-[#eee9fa] px-2 py-1 text-[11px] font-semibold text-brand" title={e.title}>📅 {e.title}</div>)}
+       {tks.map(t=><div key={t.id} className={`truncate rounded px-2 py-1 text-[11px] ${t.done?"bg-slate-100 text-slate-400 line-through":"bg-emerald-50 font-medium text-emerald-800"}`} title={t.title}>☑️ {t.title}</div>)}
+       {!evs.length&&!tks.length&&<p className="py-1 sm:py-6 text-center text-[11px] text-slate-300">일정 없음</p>}
+      </div>
+     </div>;
+    })}
    </div>
   )}
 
@@ -840,29 +830,28 @@ function ScheduleCalendar({events=[],tasks=[],selectedDate,onSelectDate,mode,onM
     </div>
    </div>
 
-   {/* 월간 달력에서 선택한 날짜의 간략 브리핑 & 일정/할일 즉시 추가 바 */}
-   <div className="rounded-xl border-2 border-[#dcd3ee] bg-[#faf8fe] p-3.5 space-y-2.5">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-     <div className="flex items-center gap-2">
+   {/* 월간 달력에서 날짜를 클릭하면 바로 일정·할 일을 추가하고 확인하는 영역 */}
+   <div className="rounded-xl border-2 border-[#dcd3ee] bg-[#faf8fe] p-3.5 space-y-2.5 text-center sm:text-left">
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
+     <div className="flex items-center justify-center gap-2">
       <span className="text-xs font-extrabold text-brand">📌 {dateLabel(selectedDate)}</span>
       <span className="text-[11px] font-semibold text-slate-500">일정 {selEvs.length}건 · 할 일 {selTks.length}건</span>
      </div>
-     <div className="flex flex-wrap items-center gap-1.5">
-      {onEditTask && <button type="button" onClick={()=>onEditTask({date:selectedDate})} className="rounded-lg border border-[#dcd3ee] bg-white px-2.5 py-1 text-[11px] font-bold text-[#493b7a] hover:border-brand">+ 할 일 추가</button>}
-      {onEditEvent && <button type="button" onClick={()=>onEditEvent({date:selectedDate})} className="rounded-lg bg-brand px-2.5 py-1 text-[11px] font-bold text-white shadow-sm">+ 일정 추가</button>}
-      <button type="button" onClick={()=>onModeChange("일간")} className="rounded-lg border border-line bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:border-brand">상세 →</button>
+     <div className="flex flex-wrap items-center justify-center gap-1.5">
+      {onEditTask && <button type="button" onClick={()=>onEditTask({date:selectedDate})} className="rounded-lg border border-[#dcd3ee] bg-white px-3 py-1.5 text-xs font-bold text-[#493b7a] hover:border-brand">+ 할 일 추가</button>}
+      {onEditEvent && <button type="button" onClick={()=>onEditEvent({date:selectedDate})} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white shadow-sm">+ 일정 추가</button>}
      </div>
     </div>
     {(selEvs.length > 0 || selTks.length > 0) ? (
-     <div className="grid gap-1.5 sm:grid-cols-2">
+     <div className="grid gap-1.5 sm:grid-cols-2 text-left">
       {selEvs.map(e => (
-       <div key={e.id} onClick={()=>onEditEvent&&onEditEvent(e)} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-white px-3 py-1.5 text-xs cursor-pointer hover:border-brand">
+       <div key={e.id} onClick={()=>onEditEvent&&onEditEvent(e)} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-white px-3 py-2 text-xs cursor-pointer hover:border-brand">
         <span className="truncate font-semibold text-ink"><strong className="text-brand mr-1.5">{e.time}</strong>{e.title}</span>
         <span className="shrink-0 text-[10px] text-slate-400">{e.category}</span>
        </div>
       ))}
       {selTks.map(t => (
-       <div key={t.id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-white px-3 py-1.5 text-xs">
+       <div key={t.id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-white px-3 py-2 text-xs">
         <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
          <input type="checkbox" checked={!!t.done} onChange={()=>onToggleTask&&onToggleTask(t.id)} className="h-3.5 w-3.5 shrink-0"/>
          <span className={`truncate font-medium ${t.done?"line-through text-slate-400":"text-ink"}`}>{t.title}</span>
@@ -872,7 +861,7 @@ function ScheduleCalendar({events=[],tasks=[],selectedDate,onSelectDate,mode,onM
       ))}
      </div>
     ) : (
-     <p className="text-xs text-slate-400">선택한 날짜에 등록된 일정이나 마감 할 일이 없습니다. 다른 날짜를 터치하거나 상단 [+ 일정 추가]를 눌러보세요.</p>
+     <p className="text-xs text-slate-400">달력에서 원하는 날짜를 터치하고 [+ 일정 추가] 또는 [+ 할 일 추가]를 눌러보세요.</p>
     )}
    </div>
   </div>}
@@ -7026,7 +7015,34 @@ const renderInstallModal = () => modal?.type==="install" && (
    )}
    {saveError&&<div className="mb-4"><Note error>{saveError}</Note></div>}
    {conflict&&<div className="mb-4"><Note error>동시 수정으로 덮어쓰기를 멈췄습니다. <button type="button" className="underline" onClick={()=>setModal({type:"sync"})}>기기 연결 확인</button></Note></div>}
-   <div className="mb-6 flex flex-wrap justify-between gap-4"><div><p className="mb-2 flex items-center gap-2 text-[11px] text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-brand"/>{page==="매일 문해력"?"고등 심화 비문학 · 1~5문단(1,500~2,000자) · 문해력_창고 연동":page==="과정안·학습지"?"사실에서 개념으로, 개념에서 새로운 맥락으로":dateLabel(day())}</p><h1 className="text-[25px] font-bold tracking-tight md:text-[28px]">{page==="오늘의 교무실"?"선생님, 오늘도 반갑습니다.":page==="과정안·학습지"?"AI 개념기반 수업 설계실":page==="매일 문해력"?"구글 드라이브 '문해력_창고' 보관소":page}</h1><p className="mt-2 max-w-3xl text-[13px] leading-7 text-slate-500">{wc?wc.intro:page==="매일 문해력"?"앱스 스크립트를 통해 구글 드라이브 '문해력_창고' 폴더에 고등 수준(1~5문단, 1,500~2,000자) 활동지를 자동 적재하고 불러옵니다.":page==="과정안·학습지"?"교사용 PDF를 분석하고, 개념·일반화·탐구·전이·평가가 연결된 과정안과 학생 활동지를 설계합니다.":"수업부터 학급 운영까지, 오늘 필요한 일을 한곳에서."}</p></div>{page==="오늘의 교무실"&&<Button primary className="hidden md:inline-flex" onClick={()=>go("과정안·학습지")}><Sparkles className="h-4 w-4"/>AI 수업 설계 시작</Button>}</div>
+   {(()=>{
+    const headerMeta = {
+     "오늘의 교무실": { icon: Home, badge: `📅 ${dateLabel(day())}`, title: `${currentUser?.name || data.profile.teacher || "선생"}님, 오늘의 교무실`, desc: "오늘의 수업 시간표와 출결, 주요 일정을 한눈에 확인하세요." },
+     "출결·제출물 관리": { icon: User, badge: `⏰ ${dateLabel(attDate)} · ${activePeriod}교시`, title: "출결 · 수업 관리", desc: "현재 교시 수업반과 학급 출결을 실시간으로 체크하고 관리합니다." },
+     "나의 일정": { icon: Calendar, badge: `🗓️ 학사 · 개인 일정`, title: "나의 일정 캘린더", desc: "달력에서 날짜를 터치해 일정을 확인하고 새 일정을 추가하세요." },
+     "할 일 목록": { icon: CheckCircle, badge: `⏰ 마감 기한 관리`, title: "나의 할 일 목록", desc: "마감 기한별 주요 업무와 해야 할 일을 빠짐없이 점검하세요." },
+     "과정안·학습지": { icon: Sparkles, badge: "사실에서 개념으로, 개념에서 전이로", title: "AI 개념기반 수업 설계실", desc: "교사용 PDF를 분석하고 개념·일반화·탐구·평가가 연결된 수업 자료를 설계합니다." },
+     "매일 문해력": { icon: Globe, badge: "고등 심화 비문학 · 문해력_창고 연동", title: "구글 드라이브 '문해력_창고' 보관소", desc: "고등 수준(1~5문단, 1,500~2,000자) 활동지를 자동 적재하고 불러옵니다." }
+    }[page] || { icon: Layers, badge: `📅 ${dateLabel(day())}`, title: page, desc: wc ? wc.intro : "수업부터 학급 운영까지, 오늘 필요한 일을 한곳에서." };
+    const HeaderIcon = headerMeta.icon;
+    return (
+     <div className="hidden md:flex mb-5 rounded-2xl border border-[#dcd3ee] bg-gradient-to-r from-[#f3effb] via-[#faf8fe] to-white px-6 py-5 shadow-soft items-center justify-between gap-3">
+      <div className="flex items-center gap-3.5 min-w-0">
+       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand text-white shadow-sm">
+        <HeaderIcon className="h-5 w-5"/>
+       </div>
+       <div className="min-w-0">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-white border border-[#dcd3ee] px-2.5 py-0.5 text-[11px] font-bold text-brand shadow-2xs">
+         {headerMeta.badge}
+        </span>
+        <h1 className="mt-1.5 text-[22px] font-extrabold tracking-tight text-ink">{headerMeta.title}</h1>
+        <p className="mt-0.5 text-[13px] text-slate-500">{headerMeta.desc}</p>
+       </div>
+      </div>
+      {page==="오늘의 교무실"&&<Button primary className="shrink-0" onClick={()=>go("과정안·학습지")}><Sparkles className="h-4 w-4"/>AI 수업 설계 시작</Button>}
+     </div>
+    );
+   })()}
  {errorView}{busyView}
    {uploadReport && (
     <div role="status" className={`mb-5 rounded-2xl border-2 p-4 shadow-md flex flex-wrap items-center justify-between gap-3 ${uploadReport.ok ? "border-emerald-500 bg-emerald-50 text-emerald-950" : "border-red-500 bg-red-50 text-red-950"}`}>
@@ -9542,24 +9558,20 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
       : scheduledClassId==="homeroom" ? {id:"homeroom",name:`우리반 (${className})`} : (data.subjectClasses||[]).find(c=>c.id===scheduledClassId);
      const isUnset = !Object.keys(data.timetable||{}).length && (data.subjectClasses||[]).length<=1;
 
-     return <div className="mb-4 rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-       <div className="flex flex-wrap items-center gap-2">
-        <Tag>⏰ 시간표 자동 연동</Tag>
-        <span className="text-xs font-semibold text-slate-700">
-         {dateLabel(attDate)} ({selDayName}요일) · {activePeriod}교시
-         {scheduledClass ? ` 배정: [${scheduledClass.name}]` : " (시간표 미배정 교시)"}
+     return <div className="mb-4 rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-3.5 sm:p-4">
+      <div className="flex flex-wrap items-center justify-center sm:justify-between gap-2">
+       <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+        <span className="text-xs font-bold text-ink">
+         📅 {dateLabel(attDate)} ({selDayName}요일) · <strong className="text-brand">{activePeriod}교시</strong>
+         {scheduledClass ? ` [${scheduledClass.name}]` : ""}
         </span>
         {activeOverride && (
-         <span className="rounded bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
+         <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
           ✅ [{activeOverride.mode}] {activeOverride.note}
          </span>
         )}
         {scheduledClass && scheduledClass.id !== activeClassId && (
-         <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">🔄 수업 변경·다른 반 명단 확인 중</span>
-        )}
-        {isUnset && ["master","subadmin"].includes(currentUser?.role) && (
-         <span className="hidden md:inline text-[11px] text-brand">※ 상단 [총괄 마스터 / 학교 관리] 콘솔에서 통합 엑셀을 업로드하면 전교사 시간표와 명단이 자동 연결됩니다.</span>
+         <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">🔄 다른 반 확인 중</span>
         )}
        </div>
        <div className="hidden md:flex flex-wrap gap-1.5">
@@ -9573,46 +9585,43 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
        </div>
       </div>
 
-      <div className="mt-3 grid gap-3 pt-3 border-t border-[#e6e0f4] sm:grid-cols-3">
-       <Field label="1. 출결 날짜" id="att-date-picker">
-        <input id="att-date-picker" type="date" value={attDate} onChange={e=>{
-         const nextDate=e.target.value;setAttDate(nextDate);
-         if(validDate(nextDate)){
-          const ov = getActiveSwapOverride(nextDate, activePeriod);
-          if(ov?.classId){ setActiveClassId(ov.classId); return; }
-          const dn=dayNames[new Date(nextDate+"T12:00:00Z").getDay()];
-          const cid=data.timetable?.[`${dn}-${activePeriod}`];
-          if(cid)setActiveClassId(cid);
-         }
-        }} className={INPUT}/>
-       </Field>
-       <Field label="2. 교시 선택" id="att-period-picker">
-        <select id="att-period-picker" className={INPUT} value={activePeriod} onChange={e=>{
-         const p=Number(e.target.value);setActivePeriod(p);
-         const ov = getActiveSwapOverride(attDate, p);
+      {/* 라벨 없이 날짜+교시를 1줄(2칸)로 배치하고 수업반 드롭다운을 연결 */}
+      <div className="mt-2.5 grid grid-cols-2 gap-2 pt-2.5 border-t border-[#e6e0f4] sm:grid-cols-3">
+       <input aria-label="출결 날짜" type="date" value={attDate} onChange={e=>{
+        const nextDate=e.target.value;setAttDate(nextDate);
+        if(validDate(nextDate)){
+         const ov = getActiveSwapOverride(nextDate, activePeriod);
          if(ov?.classId){ setActiveClassId(ov.classId); return; }
-         const cid=data.timetable?.[`${selDayName}-${p}`];
+         const dn=dayNames[new Date(nextDate+"T12:00:00Z").getDay()];
+         const cid=data.timetable?.[`${dn}-${activePeriod}`];
          if(cid)setActiveClassId(cid);
-        }}>
-         {FIXED_PERIOD_TIMES.map(p=>{
-          const ov = getActiveSwapOverride(attDate, p.period);
-          const cid=ov?.classId || data.timetable?.[`${selDayName}-${p.period}`];
-          const cname=ov ? `[${ov.mode}] ${ov.className}` : cid==="homeroom"?`우리반 (${className})`:(data.subjectClasses||[]).find(c=>c.id===cid)?.name;
-          return <option key={p.period} value={p.period}>{p.period}교시{cname?` - ${cname}`:""}</option>;
-         })}
-        </select>
-       </Field>
-       <Field label="3. 출결 체크할 수업반" id="att-class-picker">
-        <select id="att-class-picker" className={INPUT+" font-semibold text-brand"} value={(!data.profile.homeroom && activeClassId==="homeroom") ? ((data.subjectClasses||[]).find(c=>c.id!=="homeroom")?.id || "") : activeClassId} onChange={e=>setActiveClassId(e.target.value)}>
-         {data.profile.homeroom && (
-          <option value="homeroom">🏫 우리반 담임 명렬 ({className} · {data.students.length}명)</option>
-         )}
-         {(data.subjectClasses||[]).filter(c=>c.id!=="homeroom").map(c=><option key={c.id} value={c.id}>📘 {c.name} ({c.subject||"교과"} · {(c.students||[]).length}명)</option>)}
-         {!data.profile.homeroom && (data.subjectClasses||[]).filter(c=>c.id!=="homeroom").length===0 && (
-          <option value="">등록된 교과 수업반이 없습니다 (시간표·교과반 설정에서 등록)</option>
-         )}
-        </select>
-       </Field>
+        }
+       }} className={INPUT+" !py-2 text-center font-semibold"}/>
+
+       <select aria-label="교시 선택" className={INPUT+" !py-2 font-semibold"} value={activePeriod} onChange={e=>{
+        const p=Number(e.target.value);setActivePeriod(p);
+        const ov = getActiveSwapOverride(attDate, p);
+        if(ov?.classId){ setActiveClassId(ov.classId); return; }
+        const cid=data.timetable?.[`${selDayName}-${p}`];
+        if(cid)setActiveClassId(cid);
+       }}>
+        {FIXED_PERIOD_TIMES.map(p=>{
+         const ov = getActiveSwapOverride(attDate, p.period);
+         const cid=ov?.classId || data.timetable?.[`${selDayName}-${p.period}`];
+         const cname=ov ? `[${ov.mode}] ${ov.className}` : cid==="homeroom"?`우리반 (${className})`:(data.subjectClasses||[]).find(c=>c.id===cid)?.name;
+         return <option key={p.period} value={p.period}>{p.period}교시{cname?` · ${cname}`:""}</option>;
+        })}
+       </select>
+
+       <select aria-label="출결 체크할 수업반" className={INPUT+" col-span-2 sm:col-span-1 !py-2 font-bold text-brand"} value={(!data.profile.homeroom && activeClassId==="homeroom") ? ((data.subjectClasses||[]).find(c=>c.id!=="homeroom")?.id || "") : activeClassId} onChange={e=>setActiveClassId(e.target.value)}>
+        {data.profile.homeroom && (
+         <option value="homeroom">🏫 우리반 담임 명렬 ({className} · {data.students.length}명)</option>
+        )}
+        {(data.subjectClasses||[]).filter(c=>c.id!=="homeroom").map(c=><option key={c.id} value={c.id}>📘 {c.name} ({(c.students||[]).length}명)</option>)}
+        {!data.profile.homeroom && (data.subjectClasses||[]).filter(c=>c.id!=="homeroom").length===0 && (
+         <option value="">등록된 교과 수업반이 없습니다</option>
+        )}
+       </select>
       </div>
 
       {/* 출결 화면 내 한눈에 보는 주간 시간표 (모바일에서는 숨기고 태블릿·PC에서만 표시) */}
@@ -10129,15 +10138,17 @@ const getStatus = (stuId) => isHomeroom
        };
 
        return <section className={`${PANEL} overflow-hidden`}>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line p-4 sm:p-5">
-         <div>
-          <h2 className="text-sm sm:text-base font-bold text-ink">[{currentClassObj.name}] · {classTab==="출결"?`${dateLabel(attDate)} (${activePeriod}교시) 출결 체크`:"제출물 수합"}</h2>
-          <p className="hidden md:block mt-1 text-xs text-slate-500">
-           {isHomeroom ? "담임 학급 명렬입니다. 학생 우측의 [학적변경]으로 전출·자퇴 표시(흐린 글씨·복원 가능)를 하면 모든 교과 출석부에 빨간 취소선이 연동됩니다." : `교과 수업반 명렬입니다 (${targetStudents.length}명). 담임이 전출·자퇴 표시한 학생은 빨간색 취소선으로 표시되며 일괄 출석에서 자동 제외됩니다.`}
-          </p>
+        <div className="flex items-center justify-between gap-2 border-b border-line px-3.5 py-3 sm:px-5 sm:py-4 bg-[#faf8fe]">
+         <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-2.5 py-1 text-xs font-extrabold text-white shadow-2xs">
+           {classTab==="출결" ? "✅ 출결 체크" : "📁 제출물 수합"}
+          </span>
+          <span className="text-xs font-bold text-slate-600">
+           재적 {targetStudents.filter(st => !getEffectiveLeaveInfo(st)).length}명
+          </span>
          </div>
-         <div className="flex w-full sm:w-auto flex-wrap items-center gap-2">
-          {classTab==="출결"&&targetStudents.length>0&&<Button primary className="w-full sm:w-auto" onClick={markAllPresent}><Check className="h-4 w-4"/>전원 출석 일괄체크</Button>}
+         <div className="flex flex-wrap items-center gap-2">
+          {classTab==="출결"&&targetStudents.length>0&&<Button primary className="!min-h-[36px] !px-3 !py-1.5 !text-xs" onClick={markAllPresent}><Check className="h-3.5 w-3.5"/>전원 출석 일괄체크</Button>}
           {(isHomeroom || ["master","subadmin"].includes(currentUser?.role)) && (
            <Button className="!hidden md:!inline-flex" onClick={()=>setModal({type:isHomeroom?"roster":"classRoster",classId:activeClassId})}><Edit className="h-4 w-4"/>이 반 명단 등록·수정</Button>
           )}
