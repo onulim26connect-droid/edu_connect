@@ -18,12 +18,13 @@
  const mLink=document.createElement("link");mLink.rel="manifest";mLink.href="data:application/manifest+json;charset=utf-8,"+encodeURIComponent(JSON.stringify(manifest));document.head.appendChild(mLink);
 })();
 </script>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://esm.sh" crossorigin>
 <script src="https://cdn.tailwindcss.com"></script>
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
-<script src="https://unpkg.com/lucide@0.577.0"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.9/babel.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script type="importmap">
 {
  "imports":{
@@ -87,13 +88,21 @@ document.addEventListener("keydown", function(e){
 </head>
 <body class="font-sans">
 <div id="root">
- <main style="max-width:650px;margin:60px auto;padding:24px;line-height:1.9">
-  <h1 style="font-size:24px;font-weight:700">교무실을 불러오는 중입니다.</h1>
-  <p>인터넷 연결과 최신 Safari·Chrome이 필요합니다.</p>
-  <p>이 화면에서 멈추면 파일이 있는 폴더에서 <code>python3 -m http.server 8080</code>을 실행하고 <code>http://localhost:8080</code>으로 접속하세요.</p>
-  <pre id="startup-error" style="color:#a12525"></pre>
+ <main style="max-width:480px;margin:120px auto;padding:32px;text-align:center;font-family:Pretendard Variable,sans-serif;">
+  <div style="display:inline-flex;padding:16px;background:#f4f1fa;border-radius:20px;margin-bottom:20px;color:#6550bb;">
+   <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/></svg>
+  </div>
+  <h1 style="font-size:20px;font-weight:800;color:#262635;margin-bottom:8px;">스마트 교무실을 불러오는 중입니다</h1>
+  <p style="font-size:13px;color:#717182;line-height:1.6;margin-bottom:20px;">잠시만 기다려주세요. 선생님의 교무 환경을 안전하게 연결하고 있습니다.</p>
+  <div style="width:100%;height:4px;background:#e8e9ef;border-radius:2px;overflow:hidden;position:relative;">
+   <div style="position:absolute;top:0;left:0;bottom:0;width:40%;background:#6550bb;border-radius:2px;animation:pulse 1.2s infinite ease-in-out;"></div>
+  </div>
+  <pre id="startup-error" style="margin-top:20px;color:#dc2626;font-size:12px;text-align:left;white-space:pre-wrap;"></pre>
  </main>
 </div>
+<style>
+@keyframes pulse { 0% { left: -40%; } 100% { left: 100%; } }
+</style>
 <noscript>교무실을 사용하려면 자바스크립트를 허용하세요.</noscript>
 
 <script type="text/babel" data-type="module" data-presets="react">
