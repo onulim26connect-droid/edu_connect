@@ -150,7 +150,14 @@ input[type=checkbox]{accent-color:#6550bb}
 pre{white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:767px){
  input,select,textarea{font-size:16px!important}
- body{padding-bottom:calc(78px + env(safe-area-inset-bottom, 0px))}
+ /* 아이폰 Safari에서 날짜·시간 입력창이 옆 드롭다운보다 커지거나 잘리는 현상 방지 */
+ input[type="date"],input[type="time"],input[type="month"],select{
+  -webkit-appearance:none;
+  appearance:none;
+  min-height:42px;
+  line-height:1.25;
+ }
+ body{padding-bottom:calc(88px + env(safe-area-inset-bottom, 0px))}
 }
 .no-scrollbar::-webkit-scrollbar{display:none}
 .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
@@ -830,18 +837,22 @@ function ScheduleCalendar({events=[],tasks=[],selectedDate,onSelectDate,mode,onM
     </div>
    </div>
 
-   {/* 월간 달력에서 날짜를 클릭하면 바로 일정·할 일을 추가하고 확인하는 영역 */}
-   <div className="rounded-xl border-2 border-[#dcd3ee] bg-[#faf8fe] p-3.5 space-y-2.5 text-center sm:text-left">
-    <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
-     <div className="flex items-center justify-center gap-2">
-      <span className="text-xs font-extrabold text-brand">📌 {dateLabel(selectedDate)}</span>
-      <span className="text-[11px] font-semibold text-slate-500">일정 {selEvs.length}건 · 할 일 {selTks.length}건</span>
+   {/* 월간 달력 하단: 날짜 중복 표시는 제거하고 일정·할 일 추가 버튼을 큼직하게 정중앙 배치 */}
+   <div className="rounded-xl border-2 border-[#dcd3ee] bg-[#faf8fe] p-3.5 space-y-3 text-center">
+    {(onEditEvent || onEditTask) && (
+     <div className="mx-auto grid w-full max-w-md grid-cols-2 gap-2.5">
+      {onEditEvent && (
+       <button type="button" onClick={()=>onEditEvent({date:selectedDate})} className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl bg-brand px-4 py-2.5 text-xs sm:text-sm font-extrabold text-white shadow-sm hover:bg-[#54419f]">
+        <Plus className="h-4 w-4 shrink-0"/>일정 추가
+       </button>
+      )}
+      {onEditTask && (
+       <button type="button" onClick={()=>onEditTask({date:selectedDate})} className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl border border-[#dcd3ee] bg-white px-4 py-2.5 text-xs sm:text-sm font-extrabold text-[#493b7a] shadow-2xs hover:border-brand hover:bg-[#f4f1fa]">
+        <Plus className="h-4 w-4 shrink-0"/>할 일 추가
+       </button>
+      )}
      </div>
-     <div className="flex flex-wrap items-center justify-center gap-1.5">
-      {onEditTask && <button type="button" onClick={()=>onEditTask({date:selectedDate})} className="rounded-lg border border-[#dcd3ee] bg-white px-3 py-1.5 text-xs font-bold text-[#493b7a] hover:border-brand">+ 할 일 추가</button>}
-      {onEditEvent && <button type="button" onClick={()=>onEditEvent({date:selectedDate})} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white shadow-sm">+ 일정 추가</button>}
-     </div>
-    </div>
+    )}
     {(selEvs.length > 0 || selTks.length > 0) ? (
      <div className="grid gap-1.5 sm:grid-cols-2 text-left">
       {selEvs.map(e => (
@@ -861,7 +872,7 @@ function ScheduleCalendar({events=[],tasks=[],selectedDate,onSelectDate,mode,onM
       ))}
      </div>
     ) : (
-     <p className="text-xs text-slate-400">달력에서 원하는 날짜를 터치하고 [+ 일정 추가] 또는 [+ 할 일 추가]를 눌러보세요.</p>
+     <p className="text-xs text-slate-400">선택한 날짜에 등록된 일정이나 할 일이 없습니다.</p>
     )}
    </div>
   </div>}
@@ -6965,8 +6976,9 @@ const renderInstallModal = () => modal?.type==="install" && (
    {(()=>{
     const pageConfig = {
      "오늘의 교무실": { icon: Home, sub: "SMART DESK" },
-     "할 일 목록": { icon: CheckCircle, sub: "TO-DO LIST" },
-     "나의 일정": { icon: Calendar, sub: "SCHEDULE" },
+     "일정·할 일": { icon: Calendar, sub: "SCHEDULE & TO-DO" },
+     "할 일 목록": { icon: Calendar, sub: "SCHEDULE & TO-DO" },
+     "나의 일정": { icon: Calendar, sub: "SCHEDULE & TO-DO" },
      "과정안·학습지": { icon: Sparkles, sub: "AI LESSON STUDIO" },
      "매일 문해력": { icon: Globe, sub: "LITERACY ARCHIVE" },
      "기출 문제은행": { icon: File, sub: "QUESTION BANK" },
@@ -8325,11 +8337,6 @@ const renderInstallModal = () => modal?.type==="install" && (
     return <>
      {/* 상단 제목·부연설명 없이 바로 캘린더 표시 */}
      <section className={`${PANEL} mb-4 p-4 sm:p-5`}>
-      <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))} onEditEvent={e=>setModal({type:"record",kind:"event",value:e})} onEditTask={t=>setModal({type:"record",kind:"task",value:t})}/>
-     </section>
-
-     {/* 상단 제목·부연설명 없이 바로 캘린더 표시 */}
-     <section className={`${PANEL} mb-4 p-4 sm:p-5`}>
       <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))}/>
      </section>
 
@@ -8354,14 +8361,15 @@ const renderInstallModal = () => modal?.type==="install" && (
      {/* 필터 탭(전체/미완료/완료/선택 날짜만) 및 일정·할일 추가 통합 박스 확대·정중앙 정렬 */}
      <section className={`${PANEL} mb-4 p-3.5 sm:p-4 flex flex-col items-center justify-center gap-3 text-center`}>
       <div className="mx-auto grid w-full max-w-xl grid-cols-4 gap-1.5 rounded-xl border border-[#dcd3ee] bg-paper p-1.5">
-       {["전체","미완료","완료","선택 날짜만"].map(x=>(
+       {[["전체","전체"],["미완료","미완료"],["완료","완료"],["선택 날짜만","선택일"]].map(([fullLabel, shortLabel])=>(
         <button
          type="button"
-         key={x}
-         onClick={()=>setFilter(x)}
-         className={`inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-lg px-1.5 sm:px-3 text-xs sm:text-sm font-extrabold tracking-tight transition-all ${filter===x?"bg-brand text-white shadow-sm":"bg-white/70 text-slate-600 hover:bg-white"}`}
+         key={fullLabel}
+         onClick={()=>setFilter(fullLabel)}
+         className={`inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-lg px-1 sm:px-3 text-xs sm:text-sm font-extrabold tracking-tight transition-all ${filter===fullLabel?"bg-brand text-white shadow-sm":"bg-white/70 text-slate-600 hover:bg-white"}`}
         >
-         {x}
+         <span className="sm:hidden">{shortLabel}</span>
+         <span className="hidden sm:inline">{fullLabel}</span>
         </button>
        ))}
       </div>
@@ -10318,12 +10326,12 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
             )}
            </div>
           ) : classTab==="출결" ? (
-           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+           <div className="flex flex-wrap items-center justify-end gap-1 sm:gap-1.5 shrink-0">
             {[["출석","출석"],["지각","지각"],["조퇴","조퇴"],["결석","결석"],["인정결석","인정"]].map(([st, shortLabel])=>{
              const cur = getStatus(x.id);
              const active = cur === st;
              const activeStyle = st==="출석"?"bg-emerald-600 text-white border-emerald-600":st==="결석"?"bg-red-600 text-white border-red-600":"bg-amber-500 text-white border-amber-500";
-             return <button type="button" key={st} onClick={()=>setStatus(x.id, active?"미기록":st)} className={`whitespace-nowrap rounded-md border px-2 sm:px-2.5 py-1 sm:py-1.5 text-[11px] sm:text-xs font-bold transition-colors ${active?activeStyle:"border-line bg-white text-slate-600 hover:bg-paper"}`}><span className="sm:hidden">{shortLabel}</span><span className="hidden sm:inline">{st}</span></button>;
+             return <button type="button" key={st} onClick={()=>setStatus(x.id, active?"미기록":st)} className={`whitespace-nowrap rounded-md border px-1.5 sm:px-2.5 py-1 sm:py-1.5 text-[11px] sm:text-xs font-bold transition-colors ${active?activeStyle:"border-line bg-white text-slate-600 hover:bg-paper"}`}><span className="sm:hidden">{shortLabel}</span><span className="hidden sm:inline">{st}</span></button>;
             })}
            {isHomeroom && ["결석","인정결석","지각","조퇴"].includes(getStatus(x.id)) && (()=>{
             const proofDone = !!data.attendanceProofs?.[attDate]?.[x.id];
@@ -10341,10 +10349,11 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
                }
               }));
              }}
-             className={`ml-1 rounded-md border px-2.5 py-1.5 text-[11px] font-bold transition-colors ${proofDone?"border-emerald-300 bg-emerald-50 text-emerald-800":"border-red-300 bg-red-50 text-red-700 animate-pulse"}`}
+             className={`whitespace-nowrap rounded-md border px-1.5 sm:px-2.5 py-1 sm:py-1.5 text-[10.5px] sm:text-[11px] font-bold transition-colors ${proofDone?"border-emerald-300 bg-emerald-50 text-emerald-800":"border-red-300 bg-red-50 text-red-700 animate-pulse"}`}
              title="결석계·진료확인서·체험학습보고서 등 증빙서류 수합 여부 체크"
             >
-             {proofDone ? "📎 증빙 제출완료" : "📎 증빙 미제출"}
+             <span className="sm:hidden">{proofDone ? "📎완료" : "📎미제출"}</span>
+             <span className="hidden sm:inline">{proofDone ? "📎 증빙 제출완료" : "📎 증빙 미제출"}</span>
             </button>;
            })()}
            {isHomeroom && (
@@ -11159,8 +11168,8 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
 </footer>
    </main>
 
-   {/* 📱 모바일 전용 하단 고정 네비게이션 바 (아이폰 홈 바 여백 대응 및 글자 걸침 방지) */}
-    <nav aria-label="모바일 하단 빠른 메뉴" className="fixed bottom-0 inset-x-0 z-30 grid grid-cols-4 min-h-[64px] items-center border-t border-[#dcd3ee] bg-white/95 px-2 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur lg:hidden shadow-[0_-4px_16px_rgba(35,32,65,0.08)]">
+   {/* 📱 모바일 전용 하단 고정 네비게이션 바 (아이폰 홈 바 여백만큼 전체 높이를 자동 확장) */}
+    <nav aria-label="모바일 하단 빠른 메뉴" className="fixed bottom-0 inset-x-0 z-30 grid grid-cols-4 h-[calc(62px+env(safe-area-inset-bottom,0px))] items-center border-t border-[#dcd3ee] bg-white/95 px-2 pt-1 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur lg:hidden shadow-[0_-4px_16px_rgba(35,32,65,0.08)]">
      {[
       ["오늘의 교무실", "홈", Home],
       ["출결·제출물 관리", "출결", User],
