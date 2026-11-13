@@ -6957,15 +6957,54 @@ const renderInstallModal = () => modal?.type==="install" && (
   </div>
  </aside>
  <div className="lg:ml-[238px]">
-<header className="sticky top-0 z-20 flex min-h-[62px] items-center justify-between gap-2 border-b border-line bg-white px-4 md:px-7">
+<header className="sticky top-0 z-20 flex min-h-[64px] items-center justify-between gap-2 border-b border-[#dcd3ee] bg-white/95 backdrop-blur px-3 sm:px-5 md:px-7 shadow-2xs">
   <div className="flex min-w-0 items-center gap-2">
    <button type="button" aria-label="메뉴 열기" aria-expanded={drawer} onClick={()=>setDrawer(true)} className="hidden md:inline-flex rounded-lg p-2 hover:bg-paper lg:hidden">
     <Menu className="h-5 w-5 text-ink"/>
    </button>
-   <p className="truncate text-xs text-slate-500">
-    <span className="hidden sm:inline">{currentUser?.school || data.profile.school} <ChevronRight className="mx-1 inline h-3 w-3"/></span>
-    <span className="text-ink font-bold">{page}</span>
-   </p>
+   {(()=>{
+    const pageConfig = {
+     "오늘의 교무실": { icon: Home, sub: "SMART DESK" },
+     "할 일 목록": { icon: CheckCircle, sub: "TO-DO LIST" },
+     "나의 일정": { icon: Calendar, sub: "SCHEDULE" },
+     "과정안·학습지": { icon: Sparkles, sub: "AI LESSON STUDIO" },
+     "매일 문해력": { icon: Globe, sub: "LITERACY ARCHIVE" },
+     "기출 문제은행": { icon: File, sub: "QUESTION BANK" },
+     "출결·제출물 관리": { icon: User, sub: "ATTENDANCE & CLASS" },
+     "우리반 담임실": { icon: Layers, sub: "HOMEROOM OFFICE" },
+     "온라인 등록부": { icon: Edit, sub: "DIGITAL REGISTRY" },
+     "교사용 자료실": { icon: Folder, sub: "TEACHER RESOURCES" },
+     "학생 세특 초안": { icon: File, sub: "STUDENT RECORD AI" },
+     "사안·민원 지원": { icon: MessageSquare, sub: "CASE SUPPORT AI" },
+     "행사 기획": { icon: Briefcase, sub: "EVENT PLANNER AI" },
+     "알림장·문자": { icon: Send, sub: "NOTICE BUILDER AI" }
+    }[page] || { icon: Layers, sub: "SMART GYOMUSIL" };
+    const PageIcon = pageConfig.icon;
+    return (
+     <div className="inline-flex min-w-0 items-center gap-2.5 rounded-2xl border border-[#dcd3ee] bg-gradient-to-r from-[#f3effb] via-[#faf8fe] to-white px-2.5 py-1.5 pr-3.5 shadow-2xs">
+      <span className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-[#866ee8] text-white shadow-sm ring-2 ring-white">
+       <PageIcon className="h-4 w-4 shrink-0"/>
+      </span>
+      <div className="min-w-0 flex flex-col justify-center">
+       <div className="flex items-center gap-1.5">
+        <span className="truncate text-[9.5px] font-extrabold tracking-wider text-brand uppercase leading-none">
+         {pageConfig.sub}
+        </span>
+        <span className="hidden sm:inline-block h-1 w-1 rounded-full bg-[#c5b6ec]"/>
+        <span className="hidden sm:inline truncate text-[10px] font-bold text-slate-400 leading-none">
+         {currentUser?.school || data.profile.school || "스마트 교무실"}
+        </span>
+       </div>
+       <div className="mt-0.5 flex items-center gap-1.5">
+        <span className="truncate text-[14.5px] sm:text-[16px] font-extrabold tracking-tight bg-gradient-to-r from-[#262635] via-[#3c2d70] to-brand bg-clip-text text-transparent leading-tight">
+         {page}
+        </span>
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand"/>
+       </div>
+      </div>
+     </div>
+    );
+   })()}
   </div>
   <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
    {(()=>{
@@ -7015,34 +7054,6 @@ const renderInstallModal = () => modal?.type==="install" && (
    )}
    {saveError&&<div className="mb-4"><Note error>{saveError}</Note></div>}
    {conflict&&<div className="mb-4"><Note error>동시 수정으로 덮어쓰기를 멈췄습니다. <button type="button" className="underline" onClick={()=>setModal({type:"sync"})}>기기 연결 확인</button></Note></div>}
-   {(()=>{
-    const headerMeta = {
-     "오늘의 교무실": { icon: Home, badge: `📅 ${dateLabel(day())}`, title: `${currentUser?.name || data.profile.teacher || "선생"}님, 오늘의 교무실`, desc: "오늘의 수업 시간표와 출결, 주요 일정을 한눈에 확인하세요." },
-     "출결·제출물 관리": { icon: User, badge: `⏰ ${dateLabel(attDate)} · ${activePeriod}교시`, title: "출결 · 수업 관리", desc: "현재 교시 수업반과 학급 출결을 실시간으로 체크하고 관리합니다." },
-     "나의 일정": { icon: Calendar, badge: `🗓️ 학사 · 개인 일정`, title: "나의 일정 캘린더", desc: "달력에서 날짜를 터치해 일정을 확인하고 새 일정을 추가하세요." },
-     "할 일 목록": { icon: CheckCircle, badge: `⏰ 마감 기한 관리`, title: "나의 할 일 목록", desc: "마감 기한별 주요 업무와 해야 할 일을 빠짐없이 점검하세요." },
-     "과정안·학습지": { icon: Sparkles, badge: "사실에서 개념으로, 개념에서 전이로", title: "AI 개념기반 수업 설계실", desc: "교사용 PDF를 분석하고 개념·일반화·탐구·평가가 연결된 수업 자료를 설계합니다." },
-     "매일 문해력": { icon: Globe, badge: "고등 심화 비문학 · 문해력_창고 연동", title: "구글 드라이브 '문해력_창고' 보관소", desc: "고등 수준(1~5문단, 1,500~2,000자) 활동지를 자동 적재하고 불러옵니다." }
-    }[page] || { icon: Layers, badge: `📅 ${dateLabel(day())}`, title: page, desc: wc ? wc.intro : "수업부터 학급 운영까지, 오늘 필요한 일을 한곳에서." };
-    const HeaderIcon = headerMeta.icon;
-    return (
-     <div className="hidden md:flex mb-5 rounded-2xl border border-[#dcd3ee] bg-gradient-to-r from-[#f3effb] via-[#faf8fe] to-white px-6 py-5 shadow-soft items-center justify-between gap-3">
-      <div className="flex items-center gap-3.5 min-w-0">
-       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand text-white shadow-sm">
-        <HeaderIcon className="h-5 w-5"/>
-       </div>
-       <div className="min-w-0">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-white border border-[#dcd3ee] px-2.5 py-0.5 text-[11px] font-bold text-brand shadow-2xs">
-         {headerMeta.badge}
-        </span>
-        <h1 className="mt-1.5 text-[22px] font-extrabold tracking-tight text-ink">{headerMeta.title}</h1>
-        <p className="mt-0.5 text-[13px] text-slate-500">{headerMeta.desc}</p>
-       </div>
-      </div>
-      {page==="오늘의 교무실"&&<Button primary className="shrink-0" onClick={()=>go("과정안·학습지")}><Sparkles className="h-4 w-4"/>AI 수업 설계 시작</Button>}
-     </div>
-    );
-   })()}
  {errorView}{busyView}
    {uploadReport && (
     <div role="status" className={`mb-5 rounded-2xl border-2 p-4 shadow-md flex flex-wrap items-center justify-between gap-3 ${uploadReport.ok ? "border-emerald-500 bg-emerald-50 text-emerald-950" : "border-red-500 bg-red-50 text-red-950"}`}>
@@ -7188,18 +7199,10 @@ const renderInstallModal = () => modal?.type==="install" && (
         {/* 좌측 메인 컬럼: 모바일 홈에서는 숨기고(대시보드 4칸+시간표만 표시), 태블릿·데스크톱에서만 표시 */}
         <div className="hidden md:flex md:flex-col gap-5 min-w-0">
          <section className={`${PANEL} p-5 flex flex-col justify-between`}>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
-           <div>
-            <h2 className="text-base font-bold text-ink">🗓️ 교무실 통합 일정 · 학사력 · 할 일 달력</h2>
-            <p className="text-xs text-slate-500">학교 학사력 파일(엑셀·한글 표)을 올리면 1년 학사일정과 나의 할 일이 한눈에 함께 표시됩니다.</p>
-           </div>
-           <div className="flex flex-wrap gap-2">
-            <Button className="border-brand bg-[#faf8fe] text-brand font-bold" onClick={()=>setModal({type:"academicCalendar"})}>
-             <Upload className="h-3.5 w-3.5"/>📅 {["master","subadmin"].includes(currentUser?.role) ? "전교 학사력 배포·업로드" : "학사력 업로드"}
-            </Button>
-            <Button onClick={()=>setModal({type:"record",kind:"event",value:{date:eventDate}})}><Plus className="h-3.5 w-3.5"/>일정 추가</Button>
-            <Button primary onClick={()=>setModal({type:"record",kind:"task",value:{date:eventDate}})}><Plus className="h-3.5 w-3.5"/>할 일 추가</Button>
-           </div>
+          <div className="mb-3 flex justify-end">
+           <Button className="border-brand bg-[#faf8fe] text-brand font-bold !min-h-[36px] !px-3 !py-1.5 !text-xs" onClick={()=>setModal({type:"academicCalendar"})}>
+            <Upload className="h-3.5 w-3.5"/>📅 {["master","subadmin"].includes(currentUser?.role) ? "전교 학사력 배포·업로드" : "학사력 업로드"}
+           </Button>
           </div>
           <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))} onEditEvent={e=>setModal({type:"record",kind:"event",value:e})} onEditTask={t=>setModal({type:"record",kind:"task",value:t})}/>
          </section>
@@ -8285,40 +8288,131 @@ const renderInstallModal = () => modal?.type==="install" && (
       <section className={`${PANEL} p-5`}><Tag>단계별 AI 업무</Tag><h2 className="mt-4 text-sm font-semibold">작성 현황</h2><div className="mt-3 space-y-3">{wc.stages.map(([title],i)=><p key={title} className="flex gap-2 text-xs leading-6"><CheckCircle className={`mt-1 h-4 w-4 shrink-0 ${wf.outputs[i]?"text-brand":"text-slate-300"}`}/>{title}</p>)}</div><Button className="mt-4 w-full" primary disabled={!wf.outputs.some(hasText)} onClick={()=>print(workflowHTML())}>전체 결과 인쇄 / PDF</Button><Button className="mt-2 w-full" disabled={!wf.outputs.some(hasText)} onClick={()=>downloadHWPX(`${page}_보고서`,workflowHTML())}>한글(HWPX·HWP) 다운로드</Button></section><Note>앞 단계 수정 후 다음 단계를 다시 생성해 일관성을 확인하세요. 전자결재·NEIS 등록·문자 발송은 지원하지 않습니다.</Note></aside></div>
     </>}
 
-   {page==="할 일 목록"&&<>
-    <section className={`${PANEL} mb-5 p-5`}>
-     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <h2 className="text-sm font-bold text-ink">🗓️ 주간·월간 마감일 및 일정 함께 보기</h2>
-      <span className="text-xs text-slate-500">선택한 날짜({dateLabel(eventDate)})에 할 일과 일정을 함께 관리할 수 있습니다.</span>
+   {page==="할 일 목록"&&(()=>{
+    const todayStr = day();
+    const getDiffDays = dStr => {
+     if(!validDate(dStr)) return 999;
+     return Math.round((new Date(dStr+"T12:00:00Z") - new Date(todayStr+"T12:00:00Z")) / 86400000);
+    };
+    const overdueOrTodayTasks = data.tasks.filter(t => !t.done && getDiffDays(t.date) <= 0).sort((a,b)=>a.date.localeCompare(b.date));
+    const dueSoon3DaysTasks = data.tasks.filter(t => !t.done && getDiffDays(t.date) >= 1 && getDiffDays(t.date) <= 3).sort((a,b)=>a.date.localeCompare(b.date));
+    const highPriorityTasks = data.tasks.filter(t => !t.done && t.priority === "높음");
+
+    const dDayBadge = t => {
+     if(t.done) return <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">완료</span>;
+     const diff = getDiffDays(t.date);
+     if(diff < 0) return <span className="rounded bg-red-600 px-2 py-0.5 text-[10px] font-extrabold text-white">기한지남 (D+{Math.abs(diff)})</span>;
+     if(diff === 0) return <span className="rounded bg-red-500 px-2 py-0.5 text-[10px] font-extrabold text-white animate-pulse">🚨 오늘마감 (D-Day)</span>;
+     if(diff <= 3) return <span className="rounded bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-extrabold text-amber-800">⏰ D-{diff}</span>;
+     return <span className="rounded bg-[#f0ecfa] px-2 py-0.5 text-[10px] font-bold text-brand">D-{diff}</span>;
+    };
+
+    const list = data.tasks
+     .filter(t => {
+      if(!t.title.toLowerCase().includes(query.trim().toLowerCase())) return false;
+      if(filter === "미완료") return !t.done;
+      if(filter === "마감임박") return !t.done && getDiffDays(t.date) <= 3;
+      if(filter === "완료") return !!t.done;
+      if(filter === "선택 날짜만") return t.date === eventDate;
+      return true;
+     })
+     .slice()
+     .sort((a,b) => {
+      if(!!a.done !== !!b.done) return a.done ? 1 : -1;
+      return getDiffDays(a.date) - getDiffDays(b.date);
+     });
+
+    return <>
+     {/* 상단 제목·부연설명 없이 바로 캘린더 표시 */}
+     <section className={`${PANEL} mb-4 p-4 sm:p-5`}>
+      <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))} onEditEvent={e=>setModal({type:"record",kind:"event",value:e})} onEditTask={t=>setModal({type:"record",kind:"task",value:t})}/>
+     </section>
+
+     {/* 상단 제목·부연설명 없이 바로 캘린더 표시 */}
+     <section className={`${PANEL} mb-4 p-4 sm:p-5`}>
+      <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))}/>
+     </section>
+
+     {/* 할 일 메뉴 특화: 마감 임박 · 중요 미완료 요약 바 (가운데 정렬) */}
+     <section className={`${PANEL} mb-4 p-3.5 text-center`}>
+      <div className="grid grid-cols-3 gap-2">
+       <button type="button" onClick={()=>setFilter("마감임박")} className="rounded-xl border border-red-200 bg-red-50/70 py-2.5 px-2 text-center transition-all hover:border-red-400">
+        <p className="text-[11px] font-bold text-red-700">🚨 오늘·지연</p>
+        <p className="mt-0.5 text-lg font-extrabold text-red-700">{overdueOrTodayTasks.length}건</p>
+       </button>
+       <button type="button" onClick={()=>setFilter("마감임박")} className="rounded-xl border border-amber-200 bg-amber-50/70 py-2.5 px-2 text-center transition-all hover:border-amber-400">
+        <p className="text-[11px] font-bold text-amber-800">⏰ 3일내 임박</p>
+        <p className="mt-0.5 text-lg font-extrabold text-amber-800">{dueSoon3DaysTasks.length}건</p>
+       </button>
+       <button type="button" onClick={()=>setFilter("미완료")} className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] py-2.5 px-2 text-center transition-all hover:border-brand">
+        <p className="text-[11px] font-bold text-brand">🔥 중요 미완료</p>
+        <p className="mt-0.5 text-lg font-extrabold text-brand">{highPriorityTasks.length}건</p>
+       </button>
+      </div>
+     </section>
+
+     {/* 필터 탭(전체/미완료/완료/선택 날짜만) 및 일정·할일 추가 통합 박스 확대·정중앙 정렬 */}
+     <section className={`${PANEL} mb-4 p-3.5 sm:p-4 flex flex-col items-center justify-center gap-3 text-center`}>
+      <div className="mx-auto grid w-full max-w-xl grid-cols-4 gap-1.5 rounded-xl border border-[#dcd3ee] bg-paper p-1.5">
+       {["전체","미완료","완료","선택 날짜만"].map(x=>(
+        <button
+         type="button"
+         key={x}
+         onClick={()=>setFilter(x)}
+         className={`inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-lg px-1.5 sm:px-3 text-xs sm:text-sm font-extrabold tracking-tight transition-all ${filter===x?"bg-brand text-white shadow-sm":"bg-white/70 text-slate-600 hover:bg-white"}`}
+        >
+         {x}
+        </button>
+       ))}
+      </div>
+      <div className="mx-auto grid w-full max-w-xl grid-cols-2 gap-2.5">
+       <Button className="w-full !min-h-[46px] !text-xs sm:!text-sm justify-center font-extrabold" onClick={()=>setModal({type:"record",kind:"event",value:{date:eventDate}})}>
+        <Plus className="h-4 w-4 shrink-0"/>일정 추가
+       </Button>
+       <Button primary className="w-full !min-h-[46px] !text-xs sm:!text-sm justify-center font-extrabold" onClick={()=>setModal({type:"record",kind:"task",value:{date:eventDate}})}>
+        <Plus className="h-4 w-4 shrink-0"/>할 일 추가
+       </Button>
+      </div>
+     </section>
+
+
+     {/* 검색창 가운데 정렬 */}
+     <div className="relative mb-4">
+      <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400"/>
+      <input aria-label="할 일 검색" className={INPUT+" pl-10 text-center sm:text-left"} value={query} onChange={e=>setQuery(e.target.value)} placeholder="할 일 검색"/>
      </div>
-     <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))} onEditEvent={e=>setModal({type:"record",kind:"event",value:e})} onEditTask={t=>setModal({type:"record",kind:"task",value:t})}/>
-    </section>
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-line bg-white p-1 shadow-soft">{["전체","미완료","완료","선택 날짜만"].map(x=><button type="button" key={x} onClick={()=>setFilter(x)} className={`inline-flex h-[34px] items-center justify-center rounded-md px-3.5 text-[13px] font-medium transition-colors ${filter===x?"bg-[#eee9fa] font-semibold text-brand":"text-slate-500 hover:bg-paper"}`}>{x}</button>)}</div><div className="flex items-center gap-2"><Button className="h-[44px]" onClick={()=>setModal({type:"record",kind:"event",value:{date:eventDate}})}><Plus className="h-4 w-4"/>일정 추가</Button><Button className="h-[44px]" primary onClick={()=>setModal({type:"record",kind:"task",value:{date:eventDate}})}><Plus className="h-4 w-4"/>할 일 추가</Button></div></div>
-    <div className="relative mb-4"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400"/><input aria-label="할 일 검색" className={INPUT+" pl-10"} value={query} onChange={e=>setQuery(e.target.value)} placeholder="할 일 검색"/></div>
-    <section className={PANEL}>{(()=>{const list=data.tasks.filter(t=>t.title.includes(query)&&(filter==="전체"||(filter==="선택 날짜만"?t.date===eventDate:filter==="완료"?t.done:!t.done)));return list.length?list.map(taskRow):<Empty>조건에 맞는 할 일이 없습니다.</Empty>;})()}</section>
-   </>}
+
+     {/* 마감 D-Day 배지가 포함된 할 일 목록 */}
+     <section className={PANEL}>
+      {list.length ? list.map(t => (
+       <div key={t.id} className="flex items-center justify-between gap-3 border-b border-line p-4 last:border-0">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+         <input type="checkbox" className="mt-1 h-4 w-4 shrink-0" aria-label={t.title+" 완료"} checked={!!t.done} onChange={()=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x)}))}/>
+         <div className="min-w-0 flex-1 text-left">
+          <div className="flex flex-wrap items-center gap-1.5">
+           {dDayBadge(t)}
+           {t.priority==="높음"&&!t.done&&<span className="rounded bg-red-50 border border-red-200 px-1.5 py-0.5 text-[10px] font-bold text-red-700">중요</span>}
+           <span className="text-[11px] text-slate-400">{t.category}</span>
+          </div>
+          <p className={`mt-1 break-words text-sm font-semibold ${t.done?"text-slate-400 line-through":"text-ink"}`}>{t.title}</p>
+          <p className="mt-0.5 text-[11px] text-slate-500">마감: {dateLabel(t.date)}</p>
+         </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+         <button type="button" aria-label="수정" className="p-2 text-slate-500" onClick={()=>setModal({type:"record",kind:"task",value:t})}><Edit className="h-4 w-4"/></button>
+         <button type="button" aria-label="삭제" className="p-2 text-slate-500" onClick={()=>setModal({type:"delete",key:"tasks",id:t.id})}><Trash2 className="h-4 w-4"/></button>
+        </div>
+       </div>
+      )) : <Empty>조건에 맞는 할 일이 없습니다.</Empty>}
+     </section>
+    </>;
+   })()}
 
    {page==="나의 일정"&&<>
-    <section className={`${PANEL} mb-5 p-5`}>
-     <div className="mb-4 flex flex-col sm:flex-row sm:flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
-      <div className="w-full sm:w-auto text-center sm:text-left">
-       <h2 className="text-base font-bold">🗓️ 나의 일정 캘린더 (일간·주간·월간)</h2>
-       <p className="mt-1 text-xs text-slate-500">아래 달력에서 날짜를 터치해 일정을 확인하거나 추가하세요.</p>
-      </div>
-      <div className="flex flex-col sm:flex-row items-center justify-center gap-2 w-full sm:w-auto">
-       <input id="event-date" type="date" className={INPUT+" !w-[180px] text-center mx-auto sm:mx-0 font-bold text-brand"} value={eventDate} onChange={e=>setEventDate(e.target.value)}/>
-       <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex">
-        <Button className="w-full sm:w-auto whitespace-nowrap" onClick={()=>setModal({type:"record",kind:"task",value:{date:eventDate}})}><Plus className="h-4 w-4 shrink-0"/>할 일 추가</Button>
-        <Button primary className="w-full sm:w-auto whitespace-nowrap" onClick={()=>setModal({type:"record",kind:"event",value:{date:eventDate}})}><Plus className="h-4 w-4 shrink-0"/>일정 추가</Button>
-       </div>
-      </div>
-     </div>
+    {/* 상단 제목·날짜박스·추가버튼 없이 즉시 캘린더만 표시 */}
+    <section className={`${PANEL} mb-5 p-4 sm:p-5`}>
      <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))} onEditEvent={e=>setModal({type:"record",kind:"event",value:e})} onEditTask={t=>setModal({type:"record",kind:"task",value:t})}/>
     </section>
-    <div className="grid gap-5 md:grid-cols-2">
-     <section className={PANEL}><div className="border-b border-line px-5 py-3.5 font-semibold text-sm text-center sm:text-left">📅 {dateLabel(eventDate)} 일정 목록</div>{data.events.filter(e=>e.date===eventDate).length?data.events.filter(e=>e.date===eventDate).sort((a,b)=>String(a.time).localeCompare(String(b.time))).map(e=><div key={e.id} className="flex items-center gap-3 border-b border-line p-4 last:border-0"><span className="text-sm font-semibold text-brand">{e.time}</span><div className="min-w-0 flex-1"><p className="break-words text-sm">{e.title}</p><p className="mt-1 text-xs text-slate-500">{e.category}</p></div><button type="button" aria-label="일정 수정" className="p-2" onClick={()=>setModal({type:"record",kind:"event",value:e})}><Edit className="h-4 w-4"/></button><button type="button" aria-label="일정 삭제" className="p-2" onClick={()=>setModal({type:"delete",key:"events",id:e.id})}><Trash2 className="h-4 w-4"/></button></div>):<Empty>이 날짜에 등록된 일정이 없습니다.</Empty>}</section>
-     <section className={`${PANEL} hidden md:block`}><div className="border-b border-line px-5 py-3.5 font-semibold text-sm">☑️ {dateLabel(eventDate)} 마감 할 일</div>{data.tasks.filter(t=>t.date===eventDate).length?data.tasks.filter(t=>t.date===eventDate).map(taskRow):<Empty>이 날짜에 마감인 할 일이 없습니다.</Empty>}</section>
-    </div>
    </>}
 
 {page==="출결·제출물 관리"&&<>
@@ -9559,12 +9653,8 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
      const isUnset = !Object.keys(data.timetable||{}).length && (data.subjectClasses||[]).length<=1;
 
      return <div className="mb-4 rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-3.5 sm:p-4">
-      <div className="flex flex-wrap items-center justify-center sm:justify-between gap-2">
-       <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-        <span className="text-xs font-bold text-ink">
-         📅 {dateLabel(attDate)} ({selDayName}요일) · <strong className="text-brand">{activePeriod}교시</strong>
-         {scheduledClass ? ` [${scheduledClass.name}]` : ""}
-        </span>
+      {(activeOverride || (scheduledClass && scheduledClass.id !== activeClassId)) && (
+       <div className="mb-2.5 flex flex-wrap items-center justify-center sm:justify-start gap-2">
         {activeOverride && (
          <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
           ✅ [{activeOverride.mode}] {activeOverride.note}
@@ -9574,19 +9664,19 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
          <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">🔄 다른 반 확인 중</span>
         )}
        </div>
-       <div className="hidden md:flex flex-wrap gap-1.5">
-        <Button onClick={()=>setClassTab("🔄 수업교체·보강")}>🔄 수업교체·보강 신청</Button>
-        <Button onClick={()=>{
-         const info = detectCurrentClass(data);
-         setAttDate(day());
-         if(info.auto) notify(`현재 시각(${info.period}교시)에 배정된 수업반 명단을 자동으로 불러왔습니다!`);
-         else notify("현재 진행 중인 교시 시간표가 없어 선택된 수업반을 유지합니다.");
-        }}>⚡ 지금 시각 수업 자동 불러오기</Button>
-       </div>
+      )}
+      <div className="hidden md:flex justify-end gap-1.5 mb-2.5">
+       <Button onClick={()=>setClassTab("🔄 수업교체·보강")}>🔄 수업교체·보강 신청</Button>
+       <Button onClick={()=>{
+        const info = detectCurrentClass(data);
+        setAttDate(day());
+        if(info.auto) notify(`현재 시각(${info.period}교시)에 배정된 수업반 명단을 자동으로 불러왔습니다!`);
+        else notify("현재 진행 중인 교시 시간표가 없어 선택된 수업반을 유지합니다.");
+       }}>⚡ 지금 시각 수업 자동 불러오기</Button>
       </div>
 
-      {/* 라벨 없이 날짜+교시를 1줄(2칸)로 배치하고 수업반 드롭다운을 연결 */}
-      <div className="mt-2.5 grid grid-cols-2 gap-2 pt-2.5 border-t border-[#e6e0f4] sm:grid-cols-3">
+      {/* 상단 중복 날짜 제목 없이 곧바로 날짜+교시+수업반 드롭다운 표시 */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
        <input aria-label="출결 날짜" type="date" value={attDate} onChange={e=>{
         const nextDate=e.target.value;setAttDate(nextDate);
         if(validDate(nextDate)){
