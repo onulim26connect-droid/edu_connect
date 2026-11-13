@@ -652,8 +652,8 @@ function WeeklyTimetableGrid({timetable={}, subjectClasses=[], homeroomLabel="",
    <div className="flex items-center gap-2 min-w-0">
     <span className="rounded-xl bg-brand p-2 text-white shadow-sm shrink-0"><Calendar className="h-4 w-4"/></span>
     <div className="min-w-0">
-     <h3 className="truncate text-sm font-bold text-ink">{teacherName ? `${teacherName} 선생님` : "나의"} 시간표</h3>
-     <p className="text-[11px] text-slate-500">{readOnly ? "주간 수업 일정 한눈에 보기" : "교시 클릭 시 출석부 전환"}</p>
+     <h3 className="truncate text-sm font-bold text-ink">{teacherName ? `${teacherName} 선생님` : "나의"} {readOnly ? "시간표 & 출결체크" : "시간표"}</h3>
+     <p className="text-[11px] text-slate-500">{readOnly ? "주간 시간표 및 오늘 교시별 출결 바로가기" : "교시 클릭 시 출석부 전환"}</p>
     </div>
    </div>
    {masterTeachers.length > 0 && onSwitchTeacher ? (
@@ -666,7 +666,7 @@ function WeeklyTimetableGrid({timetable={}, subjectClasses=[], homeroomLabel="",
      <option value="">교사 변경 ({masterTeachers.length})</option>
      {masterTeachers.map(t => <option key={t} value={t}>{t}</option>)}
     </select>
-   ) : <Tag>주간 시간표</Tag>}
+   ) : <Tag>{readOnly ? "시간표 · 출결" : "주간 시간표"}</Tag>}
   </div>
 
   <div className="overflow-hidden rounded-xl border border-[#dcd3ee] bg-white shadow-soft">
@@ -758,7 +758,7 @@ function ScheduleCalendar({events=[],tasks=[],selectedDate,onSelectDate,mode,onM
  const dayTasks = d => tasks.filter(t=>t.date===d);
  const selEvs = dayEvents(selectedDate), selTks = dayTasks(selectedDate);
 
- return <div className="flex flex-1 flex-col justify-between space-y-3">
+ return <div className="flex flex-1 flex-col justify-start space-y-3">
   {/* 상단 네비게이션: 이전/년월/다음 가운데 정렬 (오늘 버튼 제거) + 월간/주간/일간 토글 */}
   <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5">
    <div className="flex w-full sm:w-auto items-center justify-center gap-2 shrink-0">
@@ -7034,8 +7034,9 @@ const renderInstallModal = () => modal?.type==="install" && (
     ) : null;
    })()}
    {["master","subadmin"].includes(currentUser?.role) && (
-    <Button className="!hidden md:!inline-flex !min-h-[36px] !h-[36px] !px-2.5 !py-0 whitespace-nowrap border-brand bg-[#faf8fe] text-brand font-bold text-xs" onClick={async()=>{await loadAccountsChannel();setModal({type:"masterAdmin"});}}>
+    <Button className="!inline-flex !min-h-[36px] !h-[36px] !px-2.5 !py-0 whitespace-nowrap border-brand bg-[#faf8fe] text-brand font-bold text-xs" onClick={async()=>{await loadAccountsChannel();setModal({type:"masterAdmin"});}}>
      <span>{currentUser.role==="master"?"👑":"🏫"}</span>
+     <span className="sm:hidden">승인</span>
      <span className="hidden sm:inline">{currentUser.role==="master"?"총괄 마스터":`${currentUser.school} 관리`}</span>
     </Button>
    )}
@@ -7225,111 +7226,104 @@ const renderInstallModal = () => modal?.type==="install" && (
          <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))} onEditEvent={e=>setModal({type:"record",kind:"event",value:e})} onEditTask={t=>setModal({type:"record",kind:"task",value:t})}/>
         </section>
 
-        {/* 우측: 상단 주간 시간표 + 하단 출결 바로가기 (합산 세로 길이를 좌측 캘린더와 맞춤) */}
-        <aside className="flex flex-col gap-4 h-full min-w-0">
-         <section className={`${PANEL} p-4 sm:p-5 border-2 border-[#dcd3ee] bg-gradient-to-b from-[#faf8fe] to-white shrink-0`}>
-          <WeeklyTimetableGrid
-           readOnly
-           timetable={data.timetable}
-           subjectClasses={data.subjectClasses}
-           homeroomLabel={className}
-           teacherName={cleanMasterLabel(currentUser?.name || data.profile.teacher || "")}
-           masterTeachers={currentUser?.role === "master" ? Object.keys(data.schoolMasterData?.teachers || {}).sort((a,b)=>a.localeCompare(b,"ko")) : []}
-           onSwitchTeacher={currentUser?.role === "master" ? (tName => {
-            setSelectedMasterTeacher(tName);
-            applyTeacherScheduleFromMaster(tName, null, false);
-           }) : undefined}
-          />
-         </section>
+        {/* 우측: [시간표 & 출결체크] 단일 통합 박스 (좌측 캘린더와 세로 높이 맞춤) */}
+        <aside className="flex flex-col h-full min-w-0">
+         <section className={`${PANEL} flex flex-1 flex-col justify-between p-4 sm:p-5 border-2 border-[#dcd3ee] bg-gradient-to-b from-[#faf8fe] to-white h-full min-h-0`}>
+          {/* 상단: 주간 시간표 */}
+          <div className="shrink-0">
+           <WeeklyTimetableGrid
+            readOnly
+            timetable={data.timetable}
+            subjectClasses={data.subjectClasses}
+            homeroomLabel={className}
+            teacherName={cleanMasterLabel(currentUser?.name || data.profile.teacher || "")}
+            masterTeachers={currentUser?.role === "master" ? Object.keys(data.schoolMasterData?.teachers || {}).sort((a,b)=>a.localeCompare(b,"ko")) : []}
+            onSwitchTeacher={currentUser?.role === "master" ? (tName => {
+             setSelectedMasterTeacher(tName);
+             applyTeacherScheduleFromMaster(tName, null, false);
+            }) : undefined}
+           />
+          </div>
 
-         {/* 시간표 바로 아래: 담임 출결 또는 교과 수업 출결 바로가기 (flex-1로 남은 세로 높이를 채워 좌측 캘린더 하단과 정렬) */}
-         {data.profile.homeroom ? (
-          <section className={`${PANEL} hidden md:flex md:flex-1 md:flex-col justify-between p-4 sm:p-5 space-y-3 min-h-0`}>
-           <div className="space-y-3 overflow-y-auto pr-1">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
-             <div>
-              <h2 className="text-sm font-bold text-ink">👥 담임 조회 · 교과수업 출결 ({className})</h2>
-              <p className="mt-0.5 text-[11px] text-slate-500">{dateLabel(todayStr)} · 재적 {totalStu}명</p>
+          {/* 하단: 같은 박스 안에서 구분선 아래에 이어지는 출결 체크 영역 */}
+          {data.profile.homeroom ? (
+           <div className="hidden md:flex md:flex-1 md:flex-col justify-between border-t border-[#e5def5] pt-3.5 mt-3.5 space-y-3 min-h-0">
+            <div className="space-y-2.5 overflow-y-auto pr-1">
+             <div className="rounded-xl border border-[#dcd3ee] bg-white p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+               <span className="text-xs font-bold text-brand">🏫 ① 담임 아침 조회 출결 ({className})</span>
+               <div className="flex items-center gap-1.5">
+                <button
+                 type="button"
+                 onClick={()=>{
+                  const nextMap = {};
+                  data.students.forEach(st => { nextMap[st.id] = todayAttMap[st.id] && todayAttMap[st.id]!=="미기록" ? todayAttMap[st.id] : "출석"; });
+                  update(d=>({...d,attendance:{...d.attendance,[todayStr]:nextMap}}));
+                  notify("담임 조회 미기록 학생을 전원 '출석'으로 체크했습니다.");
+                 }}
+                 className="rounded-md bg-brand px-2 py-0.5 text-[10.5px] font-bold text-white hover:bg-[#54419f]"
+                >⚡ 전원출석</button>
+                <button type="button" onClick={()=>{setAttDate(todayStr);setActiveClassId("homeroom");setClassTab("출결");go("출결·제출물 관리");}} className="text-[11px] font-semibold text-brand underline">수정 →</button>
+               </div>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 text-center">
+               <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 py-1.5">
+                <p className="text-[10px] font-semibold text-emerald-700">출석</p>
+                <p className="text-sm font-bold text-emerald-800">{presentCnt}명</p>
+               </div>
+               <div className="rounded-lg border border-amber-200 bg-amber-50/40 py-1.5">
+                <p className="text-[10px] font-semibold text-amber-700">지각·조퇴·결석</p>
+                <p className="text-sm font-bold text-amber-800">{issueStus.length}명</p>
+               </div>
+               <div className="rounded-lg border border-line bg-paper py-1.5">
+                <p className="text-[10px] font-semibold text-slate-500">미기록</p>
+                <p className="text-sm font-bold text-slate-700">{unrecordedCnt}명</p>
+               </div>
+              </div>
              </div>
-             <Button className="!min-h-[30px] !px-2.5 !py-1 !text-xs" primary onClick={()=>{
-              const nextMap = {};
-              data.students.forEach(st => { nextMap[st.id] = todayAttMap[st.id] && todayAttMap[st.id]!=="미기록" ? todayAttMap[st.id] : "출석"; });
-              update(d=>({...d,attendance:{...d.attendance,[todayStr]:nextMap}}));
-              notify("담임 조회 미기록 학생을 전원 '출석'으로 체크했습니다.");
-             }}>⚡ 전원 출석</Button>
-            </div>
 
-            <div className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-3 space-y-2">
-             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-brand">🏫 ① 담임 아침 조회 출결</span>
-              <button type="button" onClick={()=>{setAttDate(todayStr);setActiveClassId("homeroom");setClassTab("출결");go("출결·제출물 관리");}} className="text-[11px] font-semibold text-brand underline">개별 수정 →</button>
+             <div className="rounded-xl border border-[#dcd3ee] bg-white p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+               <span className="text-xs font-bold text-ink">📘 ② 교시별 교과수업 실시간 출결</span>
+               <span className="text-[11px] font-semibold text-brand">{dashPeriod}교시 ({periodCheckedCnt}/{totalStu}명)</span>
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+               {FIXED_PERIOD_TIMES.map(pt => (
+                <button
+                 type="button"
+                 key={pt.period}
+                 onClick={()=>setDashPeriod(pt.period)}
+                 className={`rounded-md py-1 text-center text-[10.5px] font-bold transition-colors ${dashPeriod===pt.period?"bg-brand text-white shadow-sm":"border border-line bg-paper text-slate-600 hover:bg-[#f0ecfa]"}`}
+                >
+                 {pt.period}
+                </button>
+               ))}
+              </div>
+              {periodMismatchRows.length > 0 ? (
+               <p className="text-[11px] font-bold text-red-600">🚨 담임 ↔ {dashPeriod}교시 불일치 {periodMismatchRows.length}명 확인 필요</p>
+              ) : periodIssueRows.length > 0 ? (
+               <p className="text-[11px] font-bold text-amber-800">⚠️ {dashPeriod}교시 특이사항 {periodIssueRows.length}명</p>
+              ) : (
+               <p className="text-[11px] text-slate-500">{periodCheckedCnt > 0 ? `✓ ${dashPeriod}교시 전원 정상 출석` : `${dashPeriod}교시 교과교사 입력 전`}</p>
+              )}
              </div>
-             <div className="grid grid-cols-3 gap-1.5 text-center">
-              <div className="rounded-lg border border-emerald-200 bg-white py-1.5">
-               <p className="text-[10px] font-semibold text-emerald-700">출석</p>
-               <p className="text-sm font-bold text-emerald-800">{presentCnt}명</p>
-              </div>
-              <div className="rounded-lg border border-amber-200 bg-white py-1.5">
-               <p className="text-[10px] font-semibold text-amber-700">지각·조퇴·결석</p>
-               <p className="text-sm font-bold text-amber-800">{issueStus.length}명</p>
-              </div>
-              <div className="rounded-lg border border-line bg-white py-1.5">
-               <p className="text-[10px] font-semibold text-slate-500">미기록</p>
-               <p className="text-sm font-bold text-slate-700">{unrecordedCnt}명</p>
-              </div>
-             </div>
-            </div>
 
-            <div className="rounded-xl border border-[#dcd3ee] bg-white p-3 space-y-2">
-             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold text-ink">📘 ② 교시별 교과수업 실시간 출결</span>
-              <span className="text-[11px] font-semibold text-brand">{dashPeriod}교시 ({periodCheckedCnt}/{totalStu}명)</span>
-             </div>
-             <div className="grid grid-cols-7 gap-1">
-              {FIXED_PERIOD_TIMES.map(pt => (
-               <button
-                type="button"
-                key={pt.period}
-                onClick={()=>setDashPeriod(pt.period)}
-                className={`rounded-md py-1 text-center text-[10.5px] font-bold transition-colors ${dashPeriod===pt.period?"bg-brand text-white shadow-sm":"border border-line bg-paper text-slate-600 hover:bg-[#f0ecfa]"}`}
-               >
-                {pt.period}
-               </button>
-              ))}
-             </div>
-             {periodMismatchRows.length > 0 ? (
-              <p className="text-[11px] font-bold text-red-600">🚨 담임 ↔ {dashPeriod}교시 불일치 {periodMismatchRows.length}명 확인 필요</p>
-             ) : periodIssueRows.length > 0 ? (
-              <p className="text-[11px] font-bold text-amber-800">⚠️ {dashPeriod}교시 특이사항 {periodIssueRows.length}명</p>
-             ) : (
-              <p className="text-[11px] text-slate-500">{periodCheckedCnt > 0 ? `✓ ${dashPeriod}교시 전원 정상 출석` : `${dashPeriod}교시 교과교사 입력 전`}</p>
+             {missingProofs.length > 0 && (
+              <div className="rounded-xl border border-red-200 bg-red-50/70 px-3 py-2 flex items-center justify-between text-xs">
+               <span className="font-bold text-red-700">📎 증빙 미제출 {missingProofs.length}건</span>
+               <button type="button" onClick={()=>{setClassTab("출결");go("출결·제출물 관리");}} className="text-[11px] font-semibold text-brand underline">확인 →</button>
+              </div>
              )}
             </div>
 
-            {missingProofs.length > 0 && (
-             <div className="rounded-xl border border-red-200 bg-red-50/70 px-3 py-2 flex items-center justify-between text-xs">
-              <span className="font-bold text-red-700">📎 증빙 미제출 {missingProofs.length}건</span>
-              <button type="button" onClick={()=>{setClassTab("출결");go("출결·제출물 관리");}} className="text-[11px] font-semibold text-brand underline">확인 →</button>
-             </div>
-            )}
-           </div>
-
-           <div className="grid grid-cols-2 gap-2 pt-2 border-t border-line shrink-0">
-            <Button primary className="!min-h-[38px] !text-xs" onClick={()=>{setClassTab("출결");go("출결·제출물 관리");}}>출결·시간표 열기</Button>
-            <Button className="!min-h-[38px] !text-xs" onClick={()=>go("우리반 담임실")}>🏫 우리반 담임실</Button>
-           </div>
-          </section>
-         ) : (
-          <section className={`${PANEL} hidden md:flex md:flex-1 md:flex-col justify-between p-4 sm:p-5 space-y-3 min-h-0`}>
-           <div className="flex flex-col flex-1 min-h-0 space-y-2.5">
-            <div className="flex items-center justify-between border-b border-line pb-2.5 shrink-0">
-             <div>
-              <h2 className="text-sm font-bold text-ink">📘 오늘 나의 교과 수업 및 출결 바로가기</h2>
-              <p className="mt-0.5 text-[11px] text-slate-500">{dateLabel(todayStr)} · 교시 클릭 시 해당 수업반 출석부가 즉시 열립니다.</p>
-             </div>
-             <Tag>비담임 교과전담</Tag>
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-line shrink-0">
+             <Button primary className="!min-h-[38px] !text-xs" onClick={()=>{setClassTab("출결");go("출결·제출물 관리");}}>출결·시간표 열기</Button>
+             <Button className="!min-h-[38px] !text-xs" onClick={()=>go("우리반 담임실")}>🏫 우리반 담임실</Button>
             </div>
-            <div className="space-y-1.5 flex-1 overflow-y-auto pr-1 max-h-[260px]">
+           </div>
+          ) : (
+           <div className="hidden md:flex md:flex-1 md:flex-col justify-between border-t border-[#e5def5] pt-3.5 mt-3.5 space-y-3 min-h-0">
+            <div className="space-y-1.5 flex-1 overflow-y-auto pr-1 max-h-[250px]">
              {FIXED_PERIOD_TIMES.map(pt => {
               const todayDayName = ["일","월","화","수","목","금","토"][new Date().getDay()];
               const cid = data.timetable?.[`${todayDayName}-${pt.period}`];
@@ -7360,13 +7354,13 @@ const renderInstallModal = () => modal?.type==="install" && (
               );
              })}
             </div>
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-line shrink-0">
+             <Button primary className="!min-h-[38px] !text-xs" onClick={()=>{setClassTab("출결");go("출결·제출물 관리");}}>교과 출석부 열기</Button>
+             <Button className="!min-h-[38px] !text-xs" onClick={()=>{setClassTab("🔄 수업교체·보강");go("출결·제출물 관리");}}>🔄 수업교체·보강</Button>
+            </div>
            </div>
-           <div className="grid grid-cols-2 gap-2 pt-2 border-t border-line shrink-0">
-            <Button primary className="!min-h-[38px] !text-xs" onClick={()=>{setClassTab("출결");go("출결·제출물 관리");}}>교과 출석부 열기</Button>
-            <Button className="!min-h-[38px] !text-xs" onClick={()=>{setClassTab("🔄 수업교체·보강");go("출결·제출물 관리");}}>🔄 수업교체·보강</Button>
-           </div>
-          </section>
-         )}
+          )}
+         </section>
         </aside>
        </div>
 
@@ -11095,15 +11089,15 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
 </footer>
    </main>
 
-   {/* 📱 모바일 전용 하단 고정 네비게이션 바 (아이폰 홈 바 여백만큼 전체 높이를 자동 확장) */}
-    <nav aria-label="모바일 하단 빠른 메뉴" className="fixed bottom-0 inset-x-0 z-30 grid grid-cols-4 h-[calc(62px+env(safe-area-inset-bottom,0px))] items-center border-t border-[#dcd3ee] bg-white/95 px-2 pt-1 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur lg:hidden shadow-[0_-4px_16px_rgba(35,32,65,0.08)]">
+   {/* 📱 모바일 전용 하단 고정 네비게이션 바 (마스터·학교관리자 로그인 시 '계정승인' 탭 자동 추가) */}
+    <nav aria-label="모바일 하단 빠른 메뉴" className={`fixed bottom-0 inset-x-0 z-30 grid ${["master","subadmin"].includes(currentUser?.role) ? "grid-cols-5" : "grid-cols-4"} h-[calc(62px+env(safe-area-inset-bottom,0px))] items-center border-t border-[#dcd3ee] bg-white/95 px-2 pt-1 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur lg:hidden shadow-[0_-4px_16px_rgba(35,32,65,0.08)]`}>
      {[
       ["오늘의 교무실", "홈", Home],
       ["출결·제출물 관리", "출결", User],
       ["나의 일정", "일정", Calendar],
       ["할 일 목록", "할 일", CheckCircle]
      ].map(([targetPage, shortLabel, Icon]) => {
-     const active = page === targetPage;
+     const active = page === targetPage && modal?.type !== "masterAdmin";
      return (
       <button
        type="button"
@@ -11119,6 +11113,28 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
       </button>
      );
     })}
+    {["master","subadmin"].includes(currentUser?.role) && (()=>{
+     const pendingAccCnt = accountsList.filter(a => !a.approved && (currentUser.role === "master" || (a.school || "광영고등학교") === currentUser.school)).length;
+     const isMasterOpen = modal?.type === "masterAdmin";
+     return (
+      <button
+       type="button"
+       onClick={async () => {
+        await loadAccountsChannel();
+        setModal({ type: "masterAdmin" });
+       }}
+       className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10.5px] font-extrabold tracking-tighter transition-all ${isMasterOpen ? "bg-brand text-white shadow-sm" : "bg-[#faf8fe] text-brand"}`}
+      >
+       <Lock className={`h-5 w-5 shrink-0 ${isMasterOpen ? "text-white stroke-[2.5]" : "text-brand stroke-[2.2]"}`}/>
+       <span className="whitespace-nowrap leading-none">계정승인</span>
+       {pendingAccCnt > 0 && (
+        <span className="absolute right-1.5 top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-extrabold text-white shadow-xs">
+         {pendingAccCnt}
+        </span>
+       )}
+      </button>
+     );
+    })()}
    </nav>
   </div>
   <input ref={importRef} type="file" accept=".json,application/json" className="hidden" onChange={restore}/>
