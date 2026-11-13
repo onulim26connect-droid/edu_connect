@@ -7366,19 +7366,51 @@ const renderInstallModal = () => modal?.type==="install" && (
 
        {/* 2단 하단 가로 영역: 캘린더와 출결열기 아래에 [기억해 둘 할 일 + AI 수업 설계실 + 문해력_창고 + 단계별 AI 교무업무] 4개 카드 나란히 배치 */}
        <div className="mt-5 hidden md:grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-4">
-        {/* 1. 기억해 둘 해야 할 일 */}
-        <section className={`${PANEL} flex flex-col justify-between overflow-hidden`}>
+        {/* 1. 기억해 둘 해야 할 일 (우측 3개 카드와 색상·아이콘·버튼 톤 100% 통일) */}
+        <section className={`${PANEL} p-5 border-2 border-[#dcd3ee] bg-gradient-to-b from-[#faf8fe] to-white flex flex-col justify-between`}>
          <div>
-          <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-           <h2 className="text-sm font-bold text-ink">☑️ 기억해 둘 해야 할 일</h2>
-           <button type="button" aria-label="할 일 추가" className="rounded-lg p-1.5 hover:bg-paper text-brand" onClick={()=>setModal({type:"record",kind:"task"})}><Plus className="h-4 w-4"/></button>
+          <div className="flex items-center justify-between">
+           <span className="rounded-xl bg-brand p-2.5 text-white shadow-sm"><CheckCircle className="h-4 w-4"/></span>
+           <div className="flex items-center gap-1.5">
+            <Tag>미완료 {data.tasks.filter(t=>!t.done).length}건</Tag>
+            <button
+             type="button"
+             aria-label="할 일 추가"
+             title="새 할 일 추가"
+             className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#f0ecfa] text-brand transition-colors hover:bg-brand hover:text-white"
+             onClick={()=>setModal({type:"record",kind:"task"})}
+            >
+             <Plus className="h-3.5 w-3.5"/>
+            </button>
+           </div>
           </div>
-          <div className="max-h-[210px] overflow-y-auto">
-           {data.tasks.slice(0,5).map(taskRow)}
-           {!data.tasks.length && <Empty>할 일을 추가하세요.</Empty>}
+          <h2 className="mt-3 text-base font-bold text-ink">기억해 둘 해야 할 일</h2>
+          <div className="mt-2.5 max-h-[125px] overflow-y-auto rounded-xl border border-[#e5def5] bg-white/90 divide-y divide-line">
+           {data.tasks.length ? data.tasks.slice(0,4).map(t => (
+            <div key={t.id} className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-[#faf8fe]">
+             <input
+              type="checkbox"
+              className="h-3.5 w-3.5 shrink-0"
+              aria-label={t.title+" 완료"}
+              checked={!!t.done}
+              onChange={()=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x)}))}
+             />
+             <span
+              onClick={()=>setModal({type:"record",kind:"task",value:t})}
+              className={`flex-1 truncate cursor-pointer font-semibold ${t.done?"text-slate-400 line-through":"text-ink"}`}
+             >
+              {t.title}
+             </span>
+             <span className="shrink-0 text-[10px] font-medium text-brand">{t.date.slice(5)}</span>
+            </div>
+           )) : (
+            <p className="py-5 text-center text-xs text-slate-400">등록된 할 일이 없습니다. 우측 상단 [+]를 눌러 추가하세요.</p>
+           )}
           </div>
          </div>
-         <button type="button" className="w-full border-t border-line py-3 text-xs font-semibold text-brand hover:bg-[#faf8fe]" onClick={()=>go("할 일 목록")}>할 일 전체 보기 →</button>
+         <Button className="mt-4 w-full" primary onClick={()=>go("할 일 목록")}>
+          할 일 전체 보기 <ArrowRight className="h-4 w-4"/>
+         </Button>
         </section>
 
         {/* 2. AI 개념기반 수업 설계실 */}
