@@ -2422,6 +2422,9 @@ const [libraryLevel,setLibraryLevel]=useState("전체"),[libraryCategory,setLibr
  const [accountsList, setAccountsList] = useState([]);
  const [schoolsList, setSchoolsList] = useState(DEFAULT_SCHOOLS);
  const [selectedSchool, setSelectedSchool] = useState(() => localStorage.getItem("gyomusil-selected-school") || "광영고등학교");
+ const [pendingApprovalBanner, setPendingApprovalBanner] = useState(null); // { school, name, username, homeroom, grade, classroom }
+ const knownPendingUsersRef = useRef(new Set());
+ const initialAccountsLoadedRef = useRef(false);
  const [sharedSyncStatus, setSharedSyncStatus] = useState("학교 공용 명단 대기");
  const [schoolNotice, setSchoolNotice] = useState("");
  const schoolNoticeRef = useRef("");
@@ -2801,6 +2804,529 @@ const [templateConfig, setTemplateConfig] = useState({
   const [studentLeaveType, setStudentLeaveType] = useState("전출");
   const [studentLeaveDate, setStudentLeaveDate] = useState(() => day());
   const [uploadReport, setUploadReport] = useState(null);
+  const [attViewMode, setAttViewMode] = useState("grid"); // "grid"(날짜별 출석부 표) | "summary"(월간 집계·AI 분석)
+  const [freeDay, setFreeDay] = useState(() => {
+   const dn = ["일","월","화","수","목","금","토"][new Date().getDay()];
+   return ["월","화","수","목","금"].includes(dn) ? dn : "월";
+  });
+  const [freePeriod, setFreePeriod] = useState(1);
+  const [freeSubjFilter, setFreeSubjFilter] = useState("자동(내 교과)");
+  const [teacherSearchQuery, setTeacherSearchQuery] = useState("");
+
+  // [고교학점제 과목 설계실 상태 및 대교협 '어디가' 기반 16대 전공 계열 권장과목 표준 DB]
+  const [creditTrackId, setCreditTrackId] = useState("med");
+  const [creditSearch, setCreditSearch] = useState("");
+  const [creditDeptFilter, setCreditDeptFilter] = useState("우리반");
+  const [creditStudentKey, setCreditStudentKey] = useState("");
+  const [creditDesignMode, setCreditDesignMode] = useState("homeroom"); // "homeroom"(우리반 학생 조회) | "simulator"(본교 개설과목 기준 직접 설계)
+  const [simSelectedCourses, setSimSelectedCourses] = useState([]); // [{ slot: "A", subject: "미적분Ⅱ" }]
+  const [simCustomStuName, setSimCustomStuName] = useState("");
+  const [customAdigaList, setCustomAdigaList] = useState(() => {
+   try { return JSON.parse(localStorage.getItem("gyomusil-adiga-custom") || "[]"); } catch { return []; }
+  });
+
+  const DEFAULT_ADIGA_DB = [
+   {
+    id: "med", group: "의학·약학", title: "🩺 의예 · 치의예 · 한의예 · 약학 · 수의예",
+    depts: "의예과, 치의예과, 한의예과, 약학과, 제약학과, 수의예과",
+    core: ["미적분Ⅱ(미적분)", "화학(화학Ⅰ)", "생명과학(생명과학Ⅰ)", "물질과 에너지(화학Ⅱ)", "세포와 물질대사(생명과학Ⅱ)"],
+    recommended: ["기하", "확률과 통계", "화학 반응의 세계(화학Ⅱ)", "생물의 유전(생명과학Ⅱ)", "물리학(물리학Ⅰ)"],
+    tip: "거의 모든 대학에서 수학(미적분 심화)과 화학·생명과학 Ⅱ단계(진로선택) 이수를 필수로 확인합니다."
+   },
+   {
+    id: "nurse", group: "간호·보건", title: "🏥 간호학 · 물리치료 · 임상병리 · 방사선 · 치위생",
+    depts: "간호학과, 물리치료학과, 작업치료학과, 임상병리학과, 방사선학과, 치위생학과, 응급구조학과",
+    core: ["생명과학(생명과학Ⅰ)", "확률과 통계", "세포와 물질대사(생명과학Ⅱ)", "생물의 유전(생명과학Ⅱ)"],
+    recommended: ["화학(화학Ⅰ)", "미적분Ⅱ(미적분)", "물질과 에너지(화학Ⅱ)", "보건", "심리학", "사회·문화"],
+    tip: "생명과학 교과목의 일반·진로선택 연계 이수가 가장 중요하며, 화학 또는 확률과 통계 이수를 권장합니다."
+   },
+   {
+    id: "cs", group: "컴퓨터·AI·SW", title: "💻 컴퓨터공학 · 인공지능(AI) · 소프트웨어 · 데이터사이언스",
+    depts: "컴퓨터공학과, 소프트웨어학과, 인공지능학과, 데이터사이언스학과, 정보보안학과, 스마트모빌리티",
+    core: ["미적분Ⅱ(미적분)", "기하", "확률과 통계", "인공지능 수학", "정보"],
+    recommended: ["물리학(물리학Ⅰ)", "데이터 과학", "인공지능 기초", "역학과 에너지(물리학Ⅱ)"],
+    tip: "수학 전 영역(미적분·기하·확률과통계·인공지능수학)의 탄탄한 이수와 정보·물리학 수강을 중점 평가합니다."
+   },
+   {
+    id: "ee", group: "전기·전자·반도체", title: "⚡ 전기·전자공학 · 반도체공학 · 로봇 · 제어계측",
+    depts: "전기전자공학부, 반도체공학과, 전자공학과, 로봇공학과, 제어계측공학과, 정보통신공학과",
+    core: ["미적분Ⅱ(미적분)", "기하", "물리학(물리학Ⅰ)", "역학과 에너지(물리학Ⅱ)", "전자기와 양자(물리학Ⅱ)"],
+    recommended: ["화학(화학Ⅰ)", "확률과 통계", "물질과 에너지(화학Ⅱ)", "정보", "인공지능 수학"],
+    tip: "물리학 일반·진로선택(역학과 에너지, 전자기와 양자)과 수학(미적분Ⅱ·기하) 이수가 핵심 필수 요건입니다."
+   },
+   {
+    id: "mech", group: "기계·항공·우주", title: "🚀 기계공학 · 항공우주 · 미래자동차 · 조선해양",
+    depts: "기계공학부, 항공우주공학과, 미래자동차공학과, 조선해양공학과, 산업공학과",
+    core: ["미적분Ⅱ(미적분)", "기하", "물리학(물리학Ⅰ)", "역학과 에너지(물리학Ⅱ)"],
+    recommended: ["화학(화학Ⅰ)", "확률과 통계", "전자기와 양자(물리학Ⅱ)", "물질과 에너지(화학Ⅱ)"],
+    tip: "물리학(특히 역학과 에너지)과 미적분Ⅱ·기하 이수 여부를 최우선으로 평가합니다."
+   },
+   {
+    id: "chem", group: "화공·신소재·에너지", title: "🧪 화학공학 · 신소재·재료공학 · 배터리 · 에너지공학",
+    depts: "화학공학과, 신소재공학과, 재료공학과, 에너지자원공학과, 고분자공학과, 이차전지공학과",
+    core: ["미적분Ⅱ(미적분)", "기하", "화학(화학Ⅰ)", "물리학(물리학Ⅰ)", "물질과 에너지(화학Ⅱ)", "화학 반응의 세계(화학Ⅱ)"],
+    recommended: ["확률과 통계", "역학과 에너지(물리학Ⅱ)", "생명과학(생명과학Ⅰ)"],
+    tip: "화학Ⅰ·Ⅱ(물질과 에너지, 화학 반응의 세계)와 물리학, 미적분Ⅱ 이수가 핵심입니다."
+   },
+   {
+    id: "bio", group: "생명·바이오·식품·환경", title: "🧬 생명공학 · 바이오시스템 · 식품영양 · 환경공학 · 농생명",
+    depts: "생명공학과, 바이오공학과, 유전공학과, 식품영양학과, 식품공학과, 환경공학과, 산림자원학과",
+    core: ["화학(화학Ⅰ)", "생명과학(생명과학Ⅰ)", "물질과 에너지(화학Ⅱ)", "세포와 물질대사(생명과학Ⅱ)", "생물의 유전(생명과학Ⅱ)"],
+    recommended: ["미적분Ⅱ(미적분)", "확률과 통계", "화학 반응의 세계(화학Ⅱ)", "지구과학(지구과학Ⅰ)", "생태와 환경"],
+    tip: "화학·생명과학의 심화 진로선택 과목 이수가 필수적이며, 자연계열이므로 미적분·확률과통계 이수를 권장합니다."
+   },
+   {
+    id: "arch", group: "건축·토목·도시", title: "🏗️ 건축학 · 건축공학 · 토목·건설환경 · 도시공학",
+    depts: "건축학과(5년), 건축공학과, 건설환경공학과, 토목공학과, 도시공학과, 조경학과",
+    core: ["미적분Ⅱ(미적분)", "기하", "물리학(물리학Ⅰ)"],
+    recommended: ["확률과 통계", "역학과 에너지(물리학Ⅱ)", "지구과학(지구과학Ⅰ)", "한국지리 탐구(한국지리)", "미술"],
+    tip: "공간 지각 및 구조 역학의 기초가 되는 기하·미적분Ⅱ·물리학 이수를 중점 확인합니다."
+   },
+   {
+    id: "math", group: "수학·물리·화학·자연", title: "📐 수학과 · 통계학과 · 물리학과 · 화학과 · 천문대기",
+    depts: "수학과, 수리과학부, 통계학과, 물리학과, 화학과, 생명과학과, 지구환경과학과, 대기과학과",
+    core: ["미적분Ⅱ(미적분)", "기하", "확률과 통계", "전공 관련 과학Ⅰ·Ⅱ(물리/화학/생명/지구)"],
+    recommended: ["인공지능 수학", "경제 수학", "융합과학 탐구"],
+    tip: "지원 학과에 해당하는 과학 교과(물리/화학/생명/지구)의 일반·진로선택 전 과목 이수를 강력 권장합니다."
+   },
+   {
+    id: "biz", group: "경영·경제·금융", title: "📈 경영학 · 경제학 · 회계·세무 · 금융·통상 · 무역",
+    depts: "경영학과, 경제학과, 글로벌경영, 회계학과, 세무학과, 금융경제학과, 국제통상학과, 무역학과",
+    core: ["확률과 통계", "경제", "미적분Ⅱ(미적분)", "경제 수학"],
+    recommended: ["사회·문화", "세계시민과 지리(세계지리)", "정치(정치와 법)", "국제 관계의 이해", "금융과 경제생활", "영어권 문화"],
+    tip: "상경·경제 계열은 수학적 분석력(확률과 통계, 경제 수학, 미적분)과 경제 과목 이수 여부를 매우 중요하게 봅니다."
+   },
+   {
+    id: "law", group: "법학·행정·정치외교", title: "⚖️ 법학 · 행정학 · 정치외교 · 경찰행정 · 국제학",
+    depts: "법학과, 자유전공학부(법학), 행정학과, 정책학과, 정치외교학과, 경찰행정학과, 국제학부",
+    core: ["정치(정치와 법)", "법과 사회(정치와 법)", "사회·문화", "경제"],
+    recommended: ["확률과 통계", "현대사회와 윤리(생활과 윤리)", "윤리와 사상", "국제 관계의 이해", "사회문제 탐구", "세계사"],
+    tip: "정치·법·경제·사회문화 등 사회교과 일반선택 과목의 폭넓은 이수와 비판적 독서·작문 역량을 평가합니다."
+   },
+   {
+    id: "soc", group: "사회·심리·미디어", title: "放送 사회학 · 심리학 · 미디어·언론정보 · 사회복지 · 지리학",
+    depts: "사회학과, 심리학과, 미디어커뮤니케이션학과, 신문방송학과, 광고홍보학과, 사회복지학과, 지리학과",
+    core: ["사회·문화", "확률과 통계", "현대사회와 윤리(생활과 윤리)"],
+    recommended: ["심리학", "사회문제 탐구", "문학과 매체(언어와 매체)", "세계시민과 지리(세계지리)", "한국지리 탐구(한국지리)", "정치(정치와 법)"],
+    tip: "사회·문화와 통계적 데이터 해석을 위한 확률과 통계, 매체·심리 관련 진로선택 과목 이수가 유리합니다."
+   },
+   {
+    id: "hum", group: "인문·어문·사학·철학", title: "📚 국어국문 · 영어영문 · 외국어 · 사학(역사) · 철학 · 문헌정보",
+    depts: "국어국문학과, 영어영문학과, 불어불문, 중어중문, 일어일문, 사학과, 국사학과, 철학과, 문헌정보학과",
+    core: ["문학", "독서와 작문(화법과 작문)", "화법과 언어(언어와 매체)", "세계사/동아시아 역사 기행(동아시아사)", "윤리와 사상"],
+    recommended: ["영미 문학 읽기", "심화 영어(심화 영어Ⅰ)", "주제 탐구 독서", "고전 읽기", "제2외국어(일본어/중국어/한문)"],
+    tip: "국어·영어·역사·철학(윤리) 관련 심화 선택과목과 제2외국어 교과 이수 충실도를 중점 확인합니다."
+   },
+   {
+    id: "edu", group: "사범·교육·교대", title: "🏫 초등교육(교대) · 국어/영어/수학/사회/과학교육 · 교육학",
+    depts: "교육대학교(초등교육과), 교육학과, 국어교육과, 영어교육과, 수학교육과, 사회교육과, 과학교육과",
+    core: ["전공 교과 핵심 과목 전체", "교육의 이해(교육학)", "현대사회와 윤리(생활과 윤리)", "사회·문화"],
+    recommended: ["심리학", "문학과 매체", "확률과 통계", "주제 탐구 독서"],
+    tip: "교대는 인문·사회·과학 균형 이수를, 중등 사범대는 해당 전공 학과(국어/수학/과학 등)의 핵심 권장과목을 동일하게 적용합니다."
+   }
+  ];
+
+  // ============================================================================
+  // [9등급제 ↔ 5등급제 누적백분위 정밀 치환 엔진 & 대입정보포털 '어디가' 50%·70%컷 DB]
+  // ============================================================================
+  // [g5(5등급제), g9(9등급제), pct(상위 누적 백분위 %)] 기준점 보간 테이블
+  const GRADE_CONVERSION_ANCHORS = [
+   { g5: 1.00, g9: 1.00, pct: 1.0 },
+   { g5: 1.08, g9: 1.40, pct: 3.5 },
+   { g5: 1.12, g9: 1.50, pct: 4.0 }, // 구 1등급 커트라인(4%)
+   { g5: 1.25, g9: 1.75, pct: 6.5 },
+   { g5: 1.38, g9: 2.00, pct: 8.5 },
+   { g5: 1.50, g9: 2.14, pct: 10.0 }, // ★ 5등급제 1등급 커트라인(10%) = 구 9등급 약 2.14등급
+   { g5: 1.58, g9: 2.50, pct: 11.0 }, // 구 2등급 커트라인(11%)
+   { g5: 1.80, g9: 3.00, pct: 17.0 },
+   { g5: 2.05, g9: 3.50, pct: 23.0 }, // 구 3등급 커트라인(23%)
+   { g5: 2.35, g9: 4.00, pct: 31.0 },
+   { g5: 2.50, g9: 4.15, pct: 34.0 }, // ★ 5등급제 2등급 커트라인(34%) = 구 9등급 약 4.15등급
+   { g5: 2.68, g9: 4.50, pct: 40.0 }, // 구 4등급 커트라인(40%)
+   { g5: 3.00, g9: 5.00, pct: 50.0 }, // 정중앙(50%)
+   { g5: 3.32, g9: 5.50, pct: 60.0 }, // 구 5등급 커트라인(60%)
+   { g5: 3.50, g9: 5.85, pct: 66.0 }, // ★ 5등급제 3등급 커트라인(66%) = 구 9등급 약 5.85등급
+   { g5: 3.95, g9: 6.50, pct: 77.0 }, // 구 6등급 커트라인(77%)
+   { g5: 4.42, g9: 7.50, pct: 89.0 }, // 구 7등급 커트라인(89%)
+   { g5: 4.50, g9: 7.64, pct: 90.0 }, // ★ 5등급제 4등급 커트라인(90%) = 구 9등급 약 7.64등급
+   { g5: 4.80, g9: 8.50, pct: 96.0 }, // 구 8등급 커트라인(96%)
+   { g5: 5.00, g9: 9.00, pct: 100.0 }
+  ];
+
+  function convert9To5Grade(rawG9){
+   const v = Math.max(1.0, Math.min(9.0, Number(rawG9) || 1.0));
+   for(let i = 0; i < GRADE_CONVERSION_ANCHORS.length - 1; i++){
+    const a = GRADE_CONVERSION_ANCHORS[i], b = GRADE_CONVERSION_ANCHORS[i + 1];
+    if(v >= a.g9 && v <= b.g9){
+     const ratio = (b.g9 === a.g9) ? 0 : (v - a.g9) / (b.g9 - a.g9);
+     const g5 = a.g5 + ratio * (b.g5 - a.g5);
+     const pct = a.pct + ratio * (b.pct - a.pct);
+     return { g5: Number(g5.toFixed(2)), g9: Number(v.toFixed(2)), pct: Number(pct.toFixed(1)) };
+    }
+   }
+   return { g5: 5.0, g9: 9.0, pct: 100.0 };
+  }
+
+  function convert5To9Grade(rawG5){
+   const v = Math.max(1.0, Math.min(5.0, Number(rawG5) || 1.0));
+   for(let i = 0; i < GRADE_CONVERSION_ANCHORS.length - 1; i++){
+    const a = GRADE_CONVERSION_ANCHORS[i], b = GRADE_CONVERSION_ANCHORS[i + 1];
+    if(v >= a.g5 && v <= b.g5){
+     const ratio = (b.g5 === a.g5) ? 0 : (v - a.g5) / (b.g5 - a.g5);
+     const g9 = a.g9 + ratio * (b.g9 - a.g9);
+     const pct = a.pct + ratio * (b.pct - a.pct);
+     return { g5: Number(v.toFixed(2)), g9: Number(g9.toFixed(2)), pct: Number(pct.toFixed(1)) };
+    }
+   }
+   return { g5: 5.0, g9: 9.0, pct: 100.0 };
+  }
+
+  // 대학별·단과대학별 전체 학과 생성 압축 헬퍼 (코드 용량 최적화 & 전 학과 완벽 수록)
+  const buildUnivDeptList = (region, univ, type, minCsat, deptTuples) =>
+   deptTuples.map(([dept, cut50_9, cut70_9, note], idx) => ({
+    id: `${univ}-${idx}-${dept}`,
+    region,
+    univ,
+    dept,
+    type,
+    cut50_9,
+    cut70_9,
+    minCsat,
+    note
+   }));
+
+  const DEFAULT_ADIGA_CUTOFF_DB = [
+   // 1순위: 서울·수도권 주요 대학 (개별 대학 및 개별 학과 완전 분리)
+   ...buildUnivDeptList("서울·수도권", "서울대학교", "학생부종합(지균/일반)", "지균 3개합 7 / 일반 미적용", [
+    ["의예과", 1.01, 1.05, "5등급제 1.00 필수 · 최상위 탐구 세특"],
+    ["치의학과", 1.03, 1.08, "5등급제 1.00 필수 · 화학·생명 심화"],
+    ["약학계열", 1.06, 1.14, "5등급제 1.00~1.03 · 화학·생명 진로선택"],
+    ["수의예과", 1.09, 1.18, "5등급제 1.00~1.04 · 생명과학 심화"],
+    ["컴퓨터공학부", 1.12, 1.28, "미적분Ⅱ·기하·물리학Ⅱ·정보 심화"],
+    ["전기·정보공학부", 1.14, 1.30, "미적분Ⅱ·기하·물리학Ⅱ 필수 수준"],
+    ["기계공학부", 1.18, 1.35, "물리학Ⅱ·미적분Ⅱ·기하 이수 권장"],
+    ["화학생물공학부", 1.17, 1.34, "화학Ⅱ·생명과학Ⅱ·미적분Ⅱ 권장"],
+    ["재료공학부", 1.20, 1.38, "화학Ⅱ·물리학Ⅱ 연계 심화 탐구"],
+    ["수리과학부·통계학과", 1.15, 1.32, "미적분Ⅱ·기하·확률과통계 전 이수"],
+    ["경영대학", 1.14, 1.30, "확률과통계·미적분·사회과학 탐구"],
+    ["경제학부", 1.15, 1.32, "경제·경제수학·미적분 심화 이수"],
+    ["정치외교학부", 1.19, 1.38, "정치·법과사회·사회문화 심화"],
+    ["사회학과·심리학과", 1.22, 1.42, "사회문화·확률과통계·심리학 연계"],
+    ["국어국문학과·영어영문학과", 1.26, 1.46, "인문대학 핵심교과 심화 독서"],
+    ["사학과·철학과", 1.28, 1.48, "세계사·윤리와사상·고전읽기 심화"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "연세대학교", "학생부교과(추천형)", "면접형 (수능최저 미적용 · 의약학 3개합 4~5)", [
+    ["의예과", 1.02, 1.06, "국수영탐 중 3개합 4 · 5등급제 1.00 필수"],
+    ["치의예과", 1.04, 1.09, "3개합 4 · 제시문 면접 영향력 큼"],
+    ["약학과", 1.08, 1.15, "3개합 5 · 화학·생명과학 진로선택"],
+    ["반도체시스템공학과", 1.24, 1.38, "미적분Ⅱ·기하·물리학Ⅱ 권장"],
+    ["전기전자공학부", 1.26, 1.40, "5등급제 1.05~1.10 · 물리학Ⅱ 권장"],
+    ["컴퓨터과학과", 1.28, 1.42, "미적분Ⅱ·기하·인공지능수학 권장"],
+    ["인공지능학과", 1.29, 1.44, "수학 전 영역 및 정보 심화 이수"],
+    ["기계공학부", 1.32, 1.46, "물리학Ⅱ(역학과 에너지) 필수 권장"],
+    ["화공생명공학부", 1.31, 1.45, "화학Ⅱ·생명과학Ⅱ·미적분Ⅱ 권장"],
+    ["신소재공학부", 1.34, 1.48, "화학Ⅱ·물리학Ⅱ 연계 이수"],
+    ["경영학과", 1.28, 1.42, "확률과통계·미적분·경제 이수 유리"],
+    ["경제학부", 1.30, 1.44, "경제·경제수학·확률과통계 권장"],
+    ["응용통계학과", 1.31, 1.45, "확률과통계·미적분Ⅱ 심화 이수"],
+    ["정치외교학과", 1.34, 1.50, "정치·국제관계의이해·사회문화"],
+    ["행정학과", 1.36, 1.52, "정치·법과사회·경제 이수 권장"],
+    ["언론홍보영상학부", 1.35, 1.50, "사회문화·문학과매체·심리학 연계"],
+    ["국어국문학과·영어영문학과", 1.40, 1.56, "5등급제 1.10~1.17 구간"],
+    ["사학과·심리학과", 1.42, 1.58, "인문·사회 탐구 역량 및 면접"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "고려대학교", "학생부교과(학교추천)", "국수영탐(1) 중 3개합 7 (의대 4개합 5)", [
+    ["의과대학", 1.02, 1.07, "4개합 5 · 5등급제 1.00 필수"],
+    ["반도체공학과", 1.26, 1.40, "3개합 7 · 물리학Ⅱ·미적분Ⅱ 심화"],
+    ["전기전자공학부", 1.28, 1.42, "3개합 7 · 5등급제 1.06~1.11"],
+    ["컴퓨터학과", 1.29, 1.43, "3개합 7 · 미적분Ⅱ·기하·정보 권장"],
+    ["기계공학부", 1.33, 1.48, "3개합 7 · 물리학Ⅱ·미적분Ⅱ 권장"],
+    ["화공생명공학과", 1.32, 1.46, "3개합 7 · 화학Ⅱ·생명과학Ⅱ 권장"],
+    ["신소재공학부", 1.35, 1.50, "3개합 7 · 화학·물리 진로선택"],
+    ["경영대학", 1.30, 1.44, "3개합 7 · 확률과통계·경제 권장"],
+    ["경제학과", 1.32, 1.46, "3개합 7 · 경제·미적분 이수 권장"],
+    ["통계학과", 1.33, 1.47, "3개합 7 · 확률과통계·미적분Ⅱ 권장"],
+    ["정치외교학과", 1.36, 1.52, "3개합 7 · 정치·국제관계 이수"],
+    ["행정학과", 1.38, 1.54, "3개합 7 · 법과사회·경제 이수"],
+    ["미디어학부", 1.37, 1.53, "3개합 7 · 사회문화·매체 탐구"],
+    ["국어국문학과·영어영문학과", 1.42, 1.58, "3개합 7 · 인문계열 핵심과목"],
+    ["사학과·심리학부", 1.44, 1.60, "3개합 7 · 5등급제 1.11~1.18"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "서강대학교", "학생부교과(지역균형)", "국수영탐(1) 중 3개합 7 (각 3등급 이내)", [
+    ["전자공학과", 1.46, 1.62, "3개합 7 · 5등급제 1.11~1.18"],
+    ["컴퓨터공학과", 1.45, 1.60, "3개합 7 · 미적분Ⅱ·기하·정보 권장"],
+    ["화공생명공학과", 1.48, 1.64, "3개합 7 · 화학Ⅱ·생명과학Ⅱ 권장"],
+    ["기계공학과", 1.50, 1.66, "3개합 7 · 물리학Ⅱ·미적분Ⅱ 권장"],
+    ["경영학부", 1.52, 1.70, "3개합 7 · 확률과통계·경제 권장"],
+    ["경제학과", 1.53, 1.71, "3개합 7 · 경제·미적분 이수 유리"],
+    ["사회과학부(정외·사회·미디어)", 1.55, 1.74, "3개합 7 · 사회교과 폭넓은 이수"],
+    ["인문학부(국문·영문·사학·철학)", 1.58, 1.78, "3개합 7 · 5등급제 1.16~1.27"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "성균관대학교", "학생부교과(학교장추천)", "국수영탐(1) 중 3개합 6~7", [
+    ["의예과", 1.02, 1.06, "3개합 4 · 5등급제 1.00 필수"],
+    ["약학과", 1.09, 1.16, "3개합 5 · 화학·생명과학 심화"],
+    ["반도체시스템공학과", 1.40, 1.56, "3개합 6 · 물리학Ⅱ·미적분Ⅱ 권장"],
+    ["소프트웨어학과", 1.42, 1.58, "3개합 6 · 수학·정보 심화 이수"],
+    ["전자전기공학부", 1.44, 1.60, "3개합 7 · 5등급제 1.10~1.18"],
+    ["공학계열(기계·화공·신소재)", 1.48, 1.65, "3개합 7 · 진로선택 성취도 반영"],
+    ["글로벌경영학과·글로벌경제학과", 1.46, 1.64, "3개합 6 · 상경계열 최상위"],
+    ["경영학과", 1.50, 1.68, "3개합 7 · 확률과통계·경제 권장"],
+    ["사회과학계열(행정·정외·미디어·심리)", 1.53, 1.72, "3개합 7 · 5등급제 1.14~1.23"],
+    ["인문과학계열(국문·영문·사학·철학)", 1.56, 1.76, "3개합 7 · 5등급제 1.15~1.26"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "한양대학교", "학생부교과(추천형)", "국수영탐(1) 중 3개합 7", [
+    ["의예과", 1.02, 1.07, "3개합 4 · 5등급제 1.00 필수"],
+    ["융합전자공학부", 1.43, 1.60, "3개합 7 · 물리학Ⅱ·미적분Ⅱ 권장"],
+    ["컴퓨터소프트웨어학부", 1.44, 1.61, "3개합 7 · 미적분Ⅱ·기하·정보 권장"],
+    ["미래자동차공학과·기계공학부", 1.46, 1.64, "3개합 7 · 물리학Ⅱ·미적분Ⅱ 권장"],
+    ["화학공학과·신소재공학부·생명공학과", 1.48, 1.66, "3개합 7 · 화학Ⅱ·생명과학Ⅱ 권장"],
+    ["경영학부", 1.51, 1.70, "3개합 7 · 확률과통계·경제 권장"],
+    ["경제금융학부", 1.52, 1.71, "3개합 7 · 경제·경제수학 권장"],
+    ["정책학과·행정학과", 1.53, 1.72, "3개합 7 · 정치·법과사회 권장"],
+    ["미디어커뮤니케이션학과", 1.54, 1.73, "3개합 7 · 사회문화·매체 탐구"],
+    ["국어국문학과·영어영문학과·사학과", 1.58, 1.78, "3개합 7 · 인문대학"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "중앙대학교", "학생부교과(지역균형)", "국수영탐(1) 중 3개합 7 (약학 4개합 5)", [
+    ["의학부", 1.03, 1.08, "4개합 5 · 5등급제 1.00 필수"],
+    ["약학부", 1.10, 1.18, "4개합 5 · 화학·생명과학 심화"],
+    ["AI학과·소프트웨어학부", 1.62, 1.82, "3개합 7 · 미적분Ⅱ·정보 권장"],
+    ["전자전기공학부", 1.64, 1.84, "3개합 7 · 물리학Ⅱ·미적분Ⅱ 권장"],
+    ["화학신소재공학부·기계공학부", 1.66, 1.86, "3개합 7 · 5등급제 1.20~1.30"],
+    ["간호학과", 1.72, 1.94, "3개합 7 · 생명과학·화학 권장"],
+    ["경영학부", 1.68, 1.88, "3개합 7 · 확률과통계·경제 권장"],
+    ["경제학부·응용통계학과", 1.70, 1.90, "3개합 7 · 수학·경제 이수 유리"],
+    ["미디어커뮤니케이션학부", 1.71, 1.91, "3개합 7 · 사회문화·언론 탐구"],
+    ["공공인재학부·정치국제학과", 1.73, 1.94, "3개합 7 · 정치·법과사회 권장"],
+    ["국어국문학과·영어영문학과·심리학과", 1.76, 1.98, "3개합 7 · 5등급제 1.26~1.37"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "경희대학교", "학생부교과(지역균형)", "국수영탐(1) 중 2개합 5 (의약학 3개합 4~5)", [
+    ["의예과·치의예과·한의예과", 1.04, 1.12, "3개합 4 · 5등급제 1.00~1.01"],
+    ["약학과", 1.12, 1.20, "3개합 5 · 화학·생명과학 심화"],
+    ["간호학과", 1.74, 1.96, "2개합 5 · 생명과학·화학 권장"],
+    ["정보디스플레이학과·전자공학과", 1.68, 1.88, "2개합 5 · 물리학Ⅱ·미적분Ⅱ 권장"],
+    ["컴퓨터공학부·인공지능학과", 1.67, 1.87, "2개합 5 · 미적분Ⅱ·정보 권장"],
+    ["기계공학과·화학공학과·신소재공학과", 1.72, 1.92, "2개합 5 · 5등급제 1.23~1.34"],
+    ["경영학과·회계·세무학과", 1.75, 1.98, "2개합 5 · 확률과통계·경제 권장"],
+    ["경제학과·무역학과", 1.77, 2.00, "2개합 5 · 경제·국제통상 연계"],
+    ["정치외교학과·행정학과·미디어학과", 1.78, 2.02, "2개합 5 · 5등급제 1.27~1.40"],
+    ["국어국문학과·영어영문학과·사학과", 1.82, 2.06, "2개합 5 · 인문대학"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "한국외국어대학교", "학생부교과(학교장추천)", "국수영탐(1) 중 2개합 4~5", [
+    ["LD학부·LT학부", 1.72, 1.94, "2개합 4 · 외교·통상 특성화"],
+    ["영어통번역학부·ELLT학과", 1.78, 2.02, "2개합 4 · 영어 심화교과 이수"],
+    ["경영학부·경제학부", 1.80, 2.05, "2개합 4 · 확률과통계·경제 권장"],
+    ["국제학부·정치외교학과·행정학과", 1.82, 2.08, "2개합 4 · 사회교과 심화"],
+    ["미디어커뮤니케이션학부", 1.81, 2.06, "2개합 4 · 사회문화·매체 탐구"],
+    ["특수외국어·어문계열(일본·중국·프랑스·독일)", 1.88, 2.15, "2개합 5 · 제2외국어 연계"],
+    ["컴퓨터공학부·정보통신공학과(글로벌)", 2.10, 2.42, "수능최저 완화 · 5등급제 1.46~1.57"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "서울시립대학교", "학생부교과(지역균형)", "국수영탐(1) 중 3개합 7~8", [
+    ["전자전기컴퓨터공학부", 1.68, 1.88, "3개합 7 · 물리학Ⅱ·미적분Ⅱ 권장"],
+    ["화학공학과·신소재공학과·기계정보공학과", 1.72, 1.94, "3개합 7 · 5등급제 1.23~1.35"],
+    ["도시공학과·건축학부(5년제)·토목공학과", 1.75, 1.98, "3개합 7 · 기하·물리학·지리 연계"],
+    ["세무학과·경영학부·경제학부", 1.70, 1.92, "3개합 8 · 상경계열 선호도 최상"],
+    ["행정학과·도시행정학과·국제관계학과", 1.74, 1.96, "3개합 8 · 정치·법과사회 권장"],
+    ["국어국문학과·영어영문학과·국사학과", 1.80, 2.04, "3개합 8 · 5등급제 1.28~1.41"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "건국대학교", "학생부교과(KU지역균형)", "수능최저 미적용 (수의예 3개합 4)", [
+    ["수의예과", 1.12, 1.22, "3개합 4 · 5등급제 1.01~1.04"],
+    ["스마트운행체공학과·컴퓨터공학부", 1.84, 2.10, "수능최저 미적용 · 미적분Ⅱ·물리 권장"],
+    ["전기전자공학부·화학공학부·기계항공공학부", 1.88, 2.15, "수능최저 미적용 · 5등급제 1.32~1.48"],
+    ["경영학과·경제학과", 1.92, 2.18, "수능최저 미적용 · 확률과통계·경제"],
+    ["정치외교학과·행정학과·미디어커뮤니케이션", 1.95, 2.22, "수능최저 미적용 · 5등급제 1.36~1.51"],
+    ["국어국문학과·영어영문학과·사학과", 2.00, 2.28, "수능최저 미적용 · 인문대학"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "동국대학교", "학생부교과(학교장추천)", "국수영탐(1) 중 2개합 5", [
+    ["약학과", 1.12, 1.20, "3개합 4 · 화학·생명과학 심화"],
+    ["경찰행정학부", 1.88, 2.14, "2개합 5 · 동국대 대표 특성화"],
+    ["AI소프트웨어융합학부·컴퓨터공학전공", 1.94, 2.20, "2개합 5 · 수학·정보 심화 이수"],
+    ["전자전기공학부·화공생물공학과·기계로봇에너지", 1.98, 2.25, "2개합 5 · 5등급제 1.37~1.53"],
+    ["경영학과·회계학과·경제학과", 2.00, 2.28, "2개합 5 · 확률과통계·경제 권장"],
+    ["미디어커뮤니케이션학전공·정치외교학전공", 2.02, 2.30, "2개합 5 · 5등급제 1.39~1.54"],
+    ["국어국문·문예창작학부·영어영문학부·사학과", 2.06, 2.35, "2개합 5 · 인문대학"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "홍익대학교", "학생부교과(학교장추천)", "국수영탐(1) 중 3개합 7~8", [
+    ["건축학부(5년제)", 1.90, 2.16, "3개합 7 · 기하·물리학·미술 연계"],
+    ["전자·전기공학부·컴퓨터공학과", 1.94, 2.22, "3개합 7 · 5등급제 1.35~1.51"],
+    ["신소재·화공·시스템반도체공학부·기계공학과", 1.98, 2.26, "3개합 7 · 수학·과학 진로선택"],
+    ["경영학부·경제학부", 2.00, 2.28, "3개합 8 · 확률과통계·경제 권장"],
+    ["법학부·영어영문학과·국어국문학과", 2.05, 2.34, "3개합 8 · 5등급제 1.42~1.55"]
+   ]),
+   ...buildUnivDeptList("서울·수도권", "숙명여자대학교", "학생부교과(지역균형)", "국수영탐(1) 중 2개합 5 (약학 3개합 4)", [
+    ["약학부", 1.12, 1.20, "3개합 4 · 화학·생명과학 심화"],
+    ["화공생명공학부·인공지능공학부·컴퓨터과학전공", 1.98, 2.26, "2개합 5 · 5등급제 1.37~1.53"],
+    ["경영학부·경제학부", 2.02, 2.30, "2개합 5 · 확률과통계·경제 권장"],
+    ["미디어학부·홍보광고학과·정치외교학과", 2.04, 2.32, "2개합 5 · 5등급제 1.41~1.55"],
+    ["한국어문학부·영어영문학부·역사문화학과", 2.08, 2.38, "2개합 5 · 인문대학"]
+   ]),
+
+   // 2순위: 전남·광주권 4개 대학 (전남대 · 조선대 · 순천대 · 목포대 전 학과 완전 분리)
+   ...buildUnivDeptList("전남·광주권", "전남대학교", "학생부교과(일반/지역)", "국수영탐 2~3개합 기준", [
+    ["의예과(지역인재)", 1.05, 1.09, "3개합 4 · 5등급제 1.00 필수권"],
+    ["치의학전문대학원(학석사통합)", 1.08, 1.14, "3개합 4 · 화학·생명 심화"],
+    ["약학부(지역인재)", 1.18, 1.26, "3개합 5 · 화학·생명 진로선택"],
+    ["수의예과", 1.24, 1.35, "3개합 6 · 생명과학 심화 권장"],
+    ["간호학과", 1.85, 2.12, "2개합 6 · 5등급제 1등급 중후반"],
+    ["전기공학과", 2.08, 2.38, "2개합 6 · 미적분Ⅱ·물리학Ⅱ 권장"],
+    ["컴퓨터정보통신공학과", 2.12, 2.45, "2개합 6 · 미적분Ⅱ·기하·정보 권장"],
+    ["인공지능학부·소프트웨어공학과", 2.18, 2.52, "2개합 6 · 인공지능수학·정보 권장"],
+    ["화학공학부", 2.15, 2.46, "2개합 6 · 화학Ⅱ·미적분Ⅱ 권장"],
+    ["기계공학부", 2.24, 2.58, "2개합 7 · 물리학Ⅱ·미적분Ⅱ 권장"],
+    ["신소재공학부", 2.28, 2.62, "2개합 7 · 화학·물리 연계 이수"],
+    ["건축학부(5년제)·건축공학과", 2.35, 2.70, "2개합 7 · 기하·물리학 권장"],
+    ["경영학부", 2.16, 2.48, "2개합 6 · 확률과통계·경제 권장"],
+    ["경제학부", 2.25, 2.60, "2개합 6 · 경제·경제수학 권장"],
+    ["행정학과", 2.22, 2.55, "2개합 6 · 정치·법과사회 권장"],
+    ["미디어커뮤니케이션학과", 2.18, 2.49, "2개합 6 · 사회문화·매체 관련"],
+    ["정치외교학과·사회학과·심리학과", 2.32, 2.68, "2개합 6~7 · 사회문화·확통 권장"],
+    ["국어교육과·영어교육과·수학교육과", 2.15, 2.50, "2개합 6 · 사범대 전공핵심과목"],
+    ["역사교육과·지리교육과·윤리교육과", 2.28, 2.64, "2개합 6 · 사회교과 심화 이수"],
+    ["국어국문학과·영어영문학과·사학과", 2.55, 2.98, "2개합 7 · 인문 심화독서·어학"],
+    ["생명과학기술학부·화학과·물리학과", 2.42, 2.85, "2개합 7 · 자연과학 Ⅱ과목 권장"],
+    ["식품영양학과·생활복지학과·의류학과", 2.68, 3.15, "2개합 8 · 생활과학계열"],
+    ["농생명화학과·산림자원학과·동물자원학부", 2.85, 3.40, "2개합 8 · 바이오·농생명 분야"]
+   ]),
+   ...buildUnivDeptList("전남·광주권", "조선대학교", "학생부교과(일반/지역)", "1~2개 영역 반영 (의약학 3개합 4~5)", [
+    ["의예과(지역인재)", 1.12, 1.18, "3개합 4 · 5등급제 1.00 필수권"],
+    ["치의예과(지역인재)", 1.16, 1.24, "3개합 4 · 화학·생명 심화"],
+    ["약학과(지역인재)", 1.24, 1.34, "3개합 5 · 화학·생명 진로선택"],
+    ["간호학과", 2.35, 2.78, "2개합 7 · 생명과학·화학 권장"],
+    ["물리치료학과·작업치료학과", 2.52, 2.98, "1개 3등급 · 보건의료 인기학과"],
+    ["임상병리학과·치위생학과·응급구조학과", 2.75, 3.25, "1개 3~4등급 · 보건과학대학"],
+    ["국어교육과·영어교육과·수학교육과", 2.85, 3.45, "2개합 8 · 사범대학 모집단위"],
+    ["컴퓨터공학과·AI소프트웨어학부", 3.25, 3.95, "수능최저 미적용 · IT융합대학"],
+    ["전기공학과·전자공학부·기계공학과", 3.45, 4.20, "수능최저 미적용 · 공과대학"],
+    ["화학공학과·신소재공학과·건축학과", 3.55, 4.30, "수능최저 미적용 · 공학계열"],
+    ["경영학부·경제학과·무역학과", 3.50, 4.25, "수능최저 미적용 · 경상대학"],
+    ["경찰행정학과·법학과·행정복지학부", 3.30, 4.05, "수능최저 미적용 · 사회과학계열"],
+    ["미디어커뮤니케이션학과·상담심리학과", 3.35, 4.10, "수능최저 미적용 · 인문사회 인기"],
+    ["국어국문학과·영어영문학과·역사문화학과", 3.85, 4.65, "수능최저 미적용 · 인문학부"]
+   ]),
+   ...buildUnivDeptList("전남·광주권", "순천대학교", "학생부교과(일반/지역)", "전형별 상이 (약학 3개합 5~6)", [
+    ["약학과(지역인재)", 1.22, 1.32, "3개합 5~6 · 5등급제 1.05 내외"],
+    ["간호학과", 2.32, 2.75, "2개합 7~8 · 생명과학 이수 권장"],
+    ["국어교육과·영어교육과·수학교육과", 2.55, 3.10, "2개합 8 · 사범대학 모집단위"],
+    ["사회교육과·컴퓨터교육과·농업교육과", 2.85, 3.45, "2개합 8~9 · 사범대학"],
+    ["컴퓨터공학과·인공지능공학부", 3.35, 4.10, "수능최저 미적용 · 글로컬 첨단분야"],
+    ["화학공학과·신소재공학과·기계우주항공공학부", 3.55, 4.35, "수능최저 미적용 · 공과대학"],
+    ["전기공학과·토목공학과·건축학부", 3.65, 4.45, "수능최저 미적용 · 공학계열"],
+    ["행정학과·법학과·사회복지학부", 3.45, 4.20, "수능최저 미적용 · 사회과학대학"],
+    ["경영학과·경제학과·무역학전공", 3.60, 4.40, "수능최저 미적용 · 경상계열"],
+    ["식품영양학과·조리과학과·웰빙자원학과", 3.70, 4.50, "수능최저 미적용 · 생명산업과학대"],
+    ["동물자원과학과·산림자원학과·원예학과", 3.90, 4.75, "수능최저 미적용 · 농생명 특성화"]
+   ]),
+   ...buildUnivDeptList("전남·광주권", "목포대학교", "학생부교과(일반/지역)", "전형별 상이 (약학 3개합 5~6)", [
+    ["약학과(지역인재)", 1.25, 1.36, "3개합 5~6 · 5등급제 1.06 내외"],
+    ["간호학과", 2.40, 2.88, "2개합 8 · 생명과학·화학 권장"],
+    ["지적학과·도시계획및조경학부", 3.35, 4.10, "수능최저 미적용 · 취업률 우수 특성화"],
+    ["조선해양공학과·기계공학과·전기공학과", 3.65, 4.45, "수능최저 미적용 · 공과대학"],
+    ["컴퓨터학부·정보보호학과·융합소프트웨어학과", 3.55, 4.35, "수능최저 미적용 · IT계열"],
+    ["건축학과(5년제)·토목공학과·환경공학과", 3.75, 4.55, "수능최저 미적용 · 건설·환경"],
+    ["행정학과·법학과·사회복지학과", 3.60, 4.40, "수능최저 미적용 · 사회과학대학"],
+    ["경영학부·경제학과·금융보험학과", 3.75, 4.55, "수능최저 미적용 · 경영대학"],
+    ["식품영양학과·아동학과·패션의류학과", 3.80, 4.60, "수능최저 미적용 · 생활과학"],
+    ["국어국문학과·영어영문학과·사학과", 4.05, 4.85, "수능최저 미적용 · 인문대학"]
+   ]),
+
+   // 3순위: 전국 지역거점국립대학교 (개별 대학 분리)
+   ...buildUnivDeptList("지역거점국립대", "부산대학교", "학생부교과", "2~3개합 기준", [
+    ["의예과·치의학·한의학·약학부", 1.08, 1.22, "3개합 4~5 · 5등급제 1.00~1.04"],
+    ["기계공학부·전기전자공학부·화공생명·정보컴퓨터공학부", 2.05, 2.38, "2개합 6 · 5등급제 1.42~1.56"],
+    ["간호학과·사범대학(국어/영어/수학교육)", 2.02, 2.35, "2개합 6 · 5등급제 1.40~1.55"],
+    ["경영학과·경제학부·행정학과·미디어커뮤니케이션학과", 2.15, 2.48, "2개합 6 · 5등급제 1.50~1.58"],
+    ["국어국문학과·영어영문학과·생명과학과·화학과", 2.45, 2.85, "2개합 7 · 5등급제 1.57~1.74"]
+   ]),
+   ...buildUnivDeptList("지역거점국립대", "경북대학교", "학생부교과", "2~3개합 기준", [
+    ["의예과·치의예과·약학과·수의예과", 1.08, 1.25, "3개합 4~5 · 5등급제 1.00~1.05"],
+    ["전자공학부·모바일공학·컴퓨터학부·기계공학부·화학공학", 2.10, 2.45, "2개합 6 · 5등급제 1.46~1.57"],
+    ["간호학과·사범대학(국어/영어/수학/역사교육)", 2.08, 2.42, "2개합 6 · 5등급제 1.44~1.57"],
+    ["경영학부·경제통상학부·행정학부·심리학과", 2.20, 2.55, "2개합 6 · 5등급제 1.52~1.60"],
+    ["인문대학·자연과학대학·IT·농생명계열", 2.55, 2.98, "2개합 7 · 5등급제 1.60~1.79"]
+   ]),
+   ...buildUnivDeptList("지역거점국립대", "충남대학교", "학생부교과", "2~3개합 기준", [
+    ["의예과·약학과·수의예과", 1.10, 1.26, "3개합 4~6 · 5등급제 1.00~1.05"],
+    ["간호학과·전기공학과·전자공학과·컴퓨터융합학부", 2.22, 2.58, "2개합 7 · 5등급제 1.52~1.61"],
+    ["기계공학부·응용화학공학과·신소재공학과", 2.35, 2.72, "2개합 7 · 5등급제 1.55~1.68"],
+    ["경영학부·경제학과·행정학과·언론정보학과", 2.32, 2.68, "2개합 7 · 5등급제 1.55~1.66"],
+    ["국어국문학과·영어영문학과·생명시스템과학대학", 2.68, 3.15, "2개합 8 · 5등급제 1.66~1.88"]
+   ]),
+   ...buildUnivDeptList("지역거점국립대", "충북대학교", "학생부교과", "2~3개합 기준", [
+    ["의예과·약학과·제약학과·수의예과", 1.12, 1.28, "3개합 4~6 · 5등급제 1.01~1.06"],
+    ["간호학과·사범대학(국어/영어/수학교육)", 2.30, 2.68, "2개합 7 · 5등급제 1.54~1.66"],
+    ["전자공학부·소프트웨어학부·반도체공학부·화학공학과", 2.55, 3.02, "2개합 8 · 5등급제 1.60~1.81"],
+    ["경영학부·경제학과·행정학과·심리학과", 2.58, 3.05, "2개합 8 · 5등급제 1.61~1.83"],
+    ["인문대학·자연과학대학·농업생명환경대학", 2.95, 3.50, "2개합 9 · 5등급제 1.78~2.05"]
+   ]),
+   ...buildUnivDeptList("지역거점국립대", "전북대학교", "학생부교과", "2~3개합 기준", [
+    ["의예과·치의예과·약학과·수의예과", 1.10, 1.25, "3개합 4~6 · 5등급제 1.00~1.05"],
+    ["간호학과·사범대학(국어/영어/수학교육)", 2.25, 2.62, "2개합 7 · 5등급제 1.53~1.63"],
+    ["전기공학과·전자공학부·컴퓨터인공지능학부·화학공학부", 2.48, 2.92, "2개합 8 · 5등급제 1.58~1.77"],
+    ["경영학과·경제학부·행정학과·미디어커뮤니케이션학과", 2.52, 2.95, "2개합 8 · 5등급제 1.59~1.78"],
+    ["인문대학·자연과학대학·농생명과학대학", 2.85, 3.38, "2개합 8~9 · 5등급제 1.74~1.99"]
+   ]),
+   ...buildUnivDeptList("지역거점국립대", "강원대학교", "학생부교과", "전형별 상이", [
+    ["의예과·약학과·수의예과", 1.14, 1.30, "3개합 4~6 · 5등급제 1.02~1.06"],
+    ["간호학과·사범대학·반도체물리학과", 2.45, 2.95, "2개합 7~8 · 5등급제 1.57~1.78"],
+    ["공학계열·경영·행정·인문사회계열", 2.75, 3.35, "수능최저 완화 · 5등급제 1.69~1.98"]
+   ]),
+   ...buildUnivDeptList("지역거점국립대", "제주대학교", "학생부교과", "전형별 상이", [
+    ["의예과·약학과·수의예과", 1.15, 1.32, "3개합 4~6 · 5등급제 1.02~1.07"],
+    ["초등교육과·간호학과·사범대학", 2.40, 2.88, "2개합 7~8 · 5등급제 1.56~1.75"],
+    ["관광경영학과·컴퓨터공학전공·생명자원계열", 2.85, 3.45, "수능최저 완화 · 5등급제 1.74~2.02"]
+   ]),
+   ...buildUnivDeptList("지역거점국립대", "경상국립대학교", "학생부교과", "전형별 상이", [
+    ["의예과·약학과·수의예과", 1.12, 1.28, "3개합 4~6 · 5등급제 1.01~1.06"],
+    ["항공우주공학부·기계공학부·간호학과·사범대학", 2.35, 2.82, "2개합 7~8 · 5등급제 1.55~1.72"],
+    ["경영학부·행정학과·농생명과학대학", 2.70, 3.28, "수능최저 완화 · 5등급제 1.67~1.94"]
+   ]),
+
+   // 4순위: 사범·교육대학교
+   ...buildUnivDeptList("사범·교대", "한국교원대학교", "학생부종합/교과", "2~3개합 기준", [
+    ["초등교육과", 1.55, 1.90, "3개합 9 내외 · 5등급제 1.15~1.33"],
+    ["국어교육과·영어교육과·수학교육과·사회/과학교육", 1.68, 2.08, "3개합 9 내외 · 5등급제 1.21~1.44"]
+   ]),
+   ...buildUnivDeptList("사범·교대", "서울교대·경인교대", "학생부교과/종합", "2개합 5~6", [
+    ["[서울교대] 초등교육과", 1.75, 2.10, "2개합 5 · 5등급제 1.25~1.46"],
+    ["[경인교대] 초등교육과", 1.90, 2.30, "2개합 6 · 5등급제 1.33~1.54"]
+   ]),
+   ...buildUnivDeptList("사범·교대", "광주교육대학교", "학생부교과/종합", "면접 반영", [
+    ["초등교육과(지역인재·일반)", 2.25, 2.75, "5등급제 1.53~1.69 · 교직 적성면접"]
+   ]),
+   ...buildUnivDeptList("사범·교대", "전주교대·공주교대", "학생부교과/종합", "면접 반영", [
+    ["[전주교대] 초등교육과", 2.30, 2.80, "5등급제 1.54~1.71 · 교직 적성면접"],
+    ["[공주교대] 초등교육과", 2.25, 2.75, "5등급제 1.53~1.69 · 교직 적성면접"]
+   ])
+  ];
+
+  const [admRows, setAdmRows] = useState([
+   { id: "g1", term: "1-1", subject: "공통국어1", credit: 4, grade5: 1, achievement: "A" },
+   { id: "g2", term: "1-1", subject: "공통수학1", credit: 4, grade5: 2, achievement: "A" },
+   { id: "g3", term: "1-1", subject: "공통영어1", credit: 4, grade5: 1, achievement: "A" },
+   { id: "g4", term: "1-1", subject: "통합사회1", credit: 3, grade5: 2, achievement: "B" },
+   { id: "g5", term: "1-1", subject: "통합과학1", credit: 3, grade5: 1, achievement: "A" }
+  ]);
+  const [admDirectG5, setAdmDirectG5] = useState("1.50");
+  const [admDirectG9, setAdmDirectG9] = useState("2.14");
+  const [admRegionFilter, setAdmRegionFilter] = useState("전체");
+  const [admSelectedUniv, setAdmSelectedUniv] = useState("전체");
+  const [admDeptGroupFilter, setAdmDeptGroupFilter] = useState("전체");
+  const [admUnivSearch, setAdmUnivSearch] = useState("");
+  const [admStuName, setAdmStuName] = useState("");
+  const [admTargetGoalId, setAdmTargetGoalId] = useState("");
+
+  const [adigaSyncMeta, setAdigaSyncMeta] = useState(() => {
+   try {
+    return JSON.parse(localStorage.getItem("gyomusil-adiga-sync-meta") || "null") || {
+     lastSyncedMonth: new Date().toISOString().slice(0, 7),
+     lastSyncedDate: day(),
+     sourceNote: "대입정보포털 '어디가' 50%·70%컷 최신 기준 반영됨",
+     remoteRows: []
+    };
+   } catch {
+    return { lastSyncedMonth: new Date().toISOString().slice(0, 7), lastSyncedDate: day(), sourceNote: "대입정보포털 '어디가' 최신 기준", remoteRows: [] };
+   }
+  });
+
   const [homeroomTab, setHomeroomTab] = useState("👥 학적·출결증빙");
   const [counselStudentFilter, setCounselStudentFilter] = useState("전체");
   const [counselCategoryFilter, setCounselCategoryFilter] = useState("전체");
@@ -3166,10 +3692,14 @@ const [templateConfig, setTemplateConfig] = useState({
      schoolMasterData: updatedMasterData
     }));
 
-    // 서버 공용 채널에 즉시 배포
+    const targetSchoolName = currentUser?.role === "master"
+     ? (selectedSchool || live.current.profile.school || "광영고등학교")
+     : (currentUser?.school || live.current.profile.school || "광영고등학교");
+
+    // 선택한 해당 학교의 고유 공용 채널에만 즉시 배포 (타 학교 데이터 보호)
     await pushSharedSchoolRoster({
      schoolMasterData: updatedMasterData
-    });
+    }, targetSchoolName);
 
     // 현재 로그인한 선생님의 화면 시간표 및 수업반 목록 즉시 재생성 반영
     const myTeacherName = cleanMasterLabel(currentUser?.name || live.current.profile.teacher || "");
@@ -3403,7 +3933,10 @@ const [templateConfig, setTemplateConfig] = useState({
    });
 
    if(shouldBroadcast){
-    await pushSharedSchoolRoster({ sharedAcademicEvents: finalSharedAcademicList });
+    const targetSchoolName = currentUser?.role === "master"
+     ? (selectedSchool || live.current.profile.school || "광영고등학교")
+     : (currentUser?.school || live.current.profile.school || "광영고등학교");
+    await pushSharedSchoolRoster({ sharedAcademicEvents: finalSharedAcademicList }, targetSchoolName);
    }
    setModal(null);
    notify(shouldBroadcast
@@ -3803,10 +4336,14 @@ const [templateConfig, setTemplateConfig] = useState({
      schoolMasterData: nextMasterData
     }));
 
+    const targetSchoolName = currentUser?.role === "master"
+     ? (selectedSchool || live.current.profile.school || "광영고등학교")
+     : (currentUser?.school || live.current.profile.school || "광영고등학교");
+
     await pushSharedSchoolRoster({
      schoolMasterData: nextMasterData,
      electiveMatrix: nextElectiveMatrix
-    });
+    }, targetSchoolName);
 
     const myTeacherName = cleanMasterLabel(currentUser?.name || live.current.profile.teacher || "");
     if(myTeacherName){
@@ -4336,14 +4873,17 @@ const [templateConfig, setTemplateConfig] = useState({
      return;
     }
 
+    const targetSchoolName = currentUser?.role === "master"
+     ? (selectedSchool || live.current.profile.school || "광영고등학교")
+     : (currentUser?.school || live.current.profile.school || "광영고등학교");
     const updatedMaster = {
      ...(live.current.schoolMasterData || {}),
      homeroomTeachers: nextHrTeachers,
      updatedAt: new Date().toISOString()
     };
     update(d => ({ ...d, schoolMasterData: updatedMaster }));
-    showUploadResult(true, `[${file.name}] 담임교사 배정 완료!`, `총 ${count}개 학급의 담임 선생님 배정을 등록했습니다.`, `등록 학급: ${Object.entries(nextHrTeachers).map(([k,v])=>`${k}(${v})`).join(", ")}`, false);
-    pushSharedSchoolRoster({ schoolMasterData: updatedMaster }).catch(()=>{});
+    showUploadResult(true, `[${targetSchoolName} · ${file.name}] 담임교사 배정 완료!`, `총 ${count}개 학급의 담임 선생님 배정을 등록했습니다.`, `등록 학급: ${Object.entries(nextHrTeachers).map(([k,v])=>`${k}(${v})`).join(", ")}`, false);
+    pushSharedSchoolRoster({ schoolMasterData: updatedMaster }, targetSchoolName).catch(()=>{});
    } catch(err) {
     showUploadResult(false, `[${file.name}] 업로드 오류`, err.message, "", false);
    } finally {
@@ -4900,7 +5440,7 @@ const notify=t=>setToast(t);
   sharedLockRef.current = true;
   try {
    const cfg = getSupabaseClientConfig();
-   const activeSchoolName = targetSchoolOverride || currentUser?.school || selectedSchool || live.current?.profile?.school || "광영고등학교";
+   const activeSchoolName = targetSchoolOverride || (currentUser?.role === "master" ? (selectedSchool || currentUser?.school) : currentUser?.school) || selectedSchool || live.current?.profile?.school || "광영고등학교";
    const channelCode = await getSchoolChannelCode(activeSchoolName);
    const r = await rpc(cfg, "read", { p_code: channelCode });
    if(r && r.version && r.version !== sharedVersionRef.current && isObj(r.data)){
@@ -5095,7 +5635,7 @@ const notify=t=>setToast(t);
  async function pushSharedSchoolRoster(customPayload = null, targetSchoolOverride = ""){
   try {
    const cfg = getSupabaseClientConfig();
-   const activeSchoolName = targetSchoolOverride || currentUser?.school || selectedSchool || live.current?.profile?.school || "광영고등학교";
+   const activeSchoolName = targetSchoolOverride || (currentUser?.role === "master" ? (selectedSchool || currentUser?.school) : currentUser?.school) || selectedSchool || live.current?.profile?.school || "광영고등학교";
    const channelCode = await getSchoolChannelCode(activeSchoolName);
 
    for(let attempt = 0; attempt < 3; attempt++){
@@ -5281,8 +5821,23 @@ const payload = {
   await pullSharedSchoolRoster(true);
  }
 
- // 교사 계정 및 다중 학교 목록 불러오기
- async function loadAccountsChannel(){
+ // 브라우저 푸시 알림 권한 요청 및 발송 헬퍼
+ function triggerAdminBrowserNotification(title, body){
+  try {
+   if(typeof Notification !== "undefined"){
+    if(Notification.permission === "granted"){
+     new Notification(title, { body });
+    } else if(Notification.permission !== "denied"){
+     Notification.requestPermission().then(perm => {
+      if(perm === "granted") new Notification(title, { body });
+     });
+    }
+   }
+  } catch {}
+ }
+
+ // 교사 계정 및 다중 학교 목록 불러오기 (+ 관리자 접속 시 신규 승인 요청 실시간 감지)
+ async function loadAccountsChannel(detectNewPending = false){
   const cfg = getSupabaseClientConfig();
   try {
    const r = await rpc(cfg, "read", { p_code: AUTH_ACCOUNTS_CHANNEL_CODE });
@@ -5296,6 +5851,25 @@ const payload = {
     return a;
    });
    const mergedSchools = Array.from(new Set([...DEFAULT_SCHOOLS, ...rawSchools, ...list.map(a=>a.school).filter(Boolean)]));
+
+   // 총괄 마스터 또는 학교 관리자인 경우 신규 승인 대기 신청 감지 및 실시간 알림
+   if(currentUser && ["master","subadmin"].includes(currentUser.role)){
+    const myScopedPending = list.filter(a => !a.approved && (currentUser.role === "master" || (a.school || "광영고등학교") === currentUser.school));
+    if(!initialAccountsLoadedRef.current){
+     myScopedPending.forEach(a => knownPendingUsersRef.current.add(a.username));
+     initialAccountsLoadedRef.current = true;
+    } else if(detectNewPending === true){
+     const newlyArrived = myScopedPending.filter(a => !knownPendingUsersRef.current.has(a.username));
+     if(newlyArrived.length > 0){
+      newlyArrived.forEach(a => knownPendingUsersRef.current.add(a.username));
+      const latest = newlyArrived[newlyArrived.length - 1];
+      const msg = `🔔 [${latest.school}] ${latest.name}(${latest.username}) 선생님이 신규 계정 승인을 신청했습니다!`;
+      notify(msg);
+      triggerAdminBrowserNotification("스마트 교무실 · 신규 교사 계정 승인 요청", msg);
+     }
+    }
+   }
+
    setAccountsList(list);
    setSchoolsList(mergedSchools);
    if(dirty){
@@ -5372,7 +5946,18 @@ const payload = {
     if(found.role !== "master" && found.school && found.school !== chosenSchool){
      throw Error(`이 계정의 소속 학교는 [${found.school}]입니다. 상단 학교 선택에서 [${found.school}]를 선택해 주세요.`);
     }
-    if(!found.approved) throw Error("현재 관리자 승인 대기 중인 계정입니다. 소속 학교 관리자 또는 마스터 승인 완료 후 로그인하실 수 있습니다.");
+    if(!found.approved){
+     setPendingApprovalBanner({
+      school: found.school || chosenSchool,
+      name: cleanMasterLabel(found.name),
+      username: found.username,
+      homeroom: found.homeroom !== false,
+      grade: Number(found.grade) || 1,
+      classroom: Number(found.classroom) || 1
+     });
+     throw Error(`현재 [${found.school || chosenSchool}] 관리자 승인 대기 중입니다. 승인 완료 후 바로 로그인하실 수 있습니다.`);
+    }
+    setPendingApprovalBanner(null);
 
     const userSchool = found.role === "master" ? (chosenSchool || found.school || "광영고등학교") : (found.school || chosenSchool || "광영고등학교");
     setSelectedSchool(userSchool);
@@ -5444,7 +6029,7 @@ const payload = {
    }
   }
 
- // 신규 교사 계정 신청 (담임교사 체크 시에만 학년·반 활성화)
+ // 신규 교사 계정 신청 (승인 대기 안내 카드 + 관리자 이메일/푸시 알림 연동)
  async function handleTeacherRegister(e){
   e.preventDefault();
   if(authBusy) return;
@@ -5488,10 +6073,41 @@ const payload = {
    const next = [...accounts, newAcc];
    const nextSchools = Array.from(new Set([...schools, school]));
    await saveAccountsChannel(next, version, nextSchools);
+
+   // 해당 학교 관리자(subadmin) 및 총괄 마스터 이메일 수집 후 알림 발송 요청
+   const adminEmails = accounts
+    .filter(a => a.approved && a.email && (a.role === "master" || (a.role === "subadmin" && a.school === school)))
+    .map(a => a.email);
+   const targetGas = (gasUrl || DEFAULT_GAS_URL || "").trim();
+   if(targetGas){
+    fetch(targetGas, {
+     method: "POST",
+     headers: { "Content-Type": "text/plain;charset=utf-8" },
+     body: JSON.stringify({
+      action: "notifyNewAccount",
+      school,
+      name,
+      username,
+      applicantEmail: email,
+      roleText: isHomeroom ? `${grade}학년 ${classroom}반 담임교사` : "비담임 교과전담교사",
+      adminEmails
+     }),
+     redirect: "follow"
+    }).catch(()=>{});
+   }
+
    setSelectedSchool(school);
    localStorage.setItem("gyomusil-selected-school", school);
+   setPendingApprovalBanner({
+    school,
+    name,
+    username,
+    homeroom: isHomeroom,
+    grade,
+    classroom
+   });
    setAuthMode("login");
-   setAuthNotice(`[${school}] 신규 교사 계정 신청(${isHomeroom ? `${grade}-${classroom} 담임` : "비담임 교과전담"})이 완료되었습니다! 학교 관리자 또는 마스터 승인 후 바로 로그인하실 수 있습니다.`);
+   setAuthNotice(`[${school}] ${name} 선생님의 계정 신청이 접수되었습니다! 관리자 승인 즉시 아래 기능들을 모두 사용하실 수 있습니다.`);
   } catch(err) {
    setAuthError(err.message);
   } finally {
@@ -5901,13 +6517,28 @@ useEffect(()=>{
  useEffect(()=>()=>{request.current?.abort();modelAbort.current?.abort();},[]);
  // [이중 채널 1] 교사 개인 공간 3초 주기 자동 동기화
  useEffect(()=>{if(!connected)return;const t=setInterval(()=>syncTick(),3000);return()=>clearInterval(t);},[connected]);
- // [이중 채널 2] 학교 공용 마스터 채널(SCHOOL_SHARED_ROSTER_CODE) 5초 주기 실시간 자동 동기화
+ // [이중 채널 2] 학교 공용 마스터 채널 5초 주기 실시간 자동 동기화
  useEffect(()=>{
   if(!currentUser) return;
   pullSharedSchoolRoster(true);
   const t = setInterval(() => pullSharedSchoolRoster(true), 5000);
   return () => clearInterval(t);
  },[currentUser]);
+
+ // [관리자 실시간 알림 감시] 총괄 마스터 · 학교 관리자 접속 시 신규 가입 승인 신청 10초 주기 자동 감시
+ useEffect(()=>{
+  if(!currentUser || !["master","subadmin"].includes(currentUser.role)) return;
+  initialAccountsLoadedRef.current = false;
+  knownPendingUsersRef.current = new Set();
+  loadAccountsChannel(false);
+  try {
+   if(typeof Notification !== "undefined" && Notification.permission === "default"){
+    Notification.requestPermission();
+   }
+  } catch {}
+  const t = setInterval(() => loadAccountsChannel(true), 10000);
+  return () => clearInterval(t);
+ },[currentUser?.username, currentUser?.role]);
 
  // 로그인한 선생님의 성함(currentUser.name)이 마스터 데이터(시간표·담임배정표)에 존재하면, 시간표가 비어 있거나 학생 명단이 연결되지 않았을 때 즉시 자동 세팅!
  useEffect(()=>{
@@ -5938,6 +6569,7 @@ useEffect(()=>{
   if(aiLock.current&&!confirm("생성 요청을 취소하고 이동할까요?"))return;
   if(aiLock.current)cancel();
   setPage(name);setDrawer(false);setQuery("");setFilter("전체");
+  window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   if(name==="출결·제출물 관리"){
    setTimeout(()=>detectCurrentClass(live.current), 20);
   }
@@ -6179,10 +6811,47 @@ useEffect(()=>{
   }
  }
 
+ async function syncMonthlyAdigaCutoffs(silent = false){
+  const curMonth = new Date().toISOString().slice(0, 7);
+  const targetUrl = (gasUrl || DEFAULT_GAS_URL || "").trim();
+  let remoteRows = adigaSyncMeta?.remoteRows || [];
+  let noteText = `대입정보포털 '어디가' 월간 기준 자동 동기화 완료 (${curMonth})`;
+
+  if(targetUrl){
+   try {
+    const sep = targetUrl.includes("?") ? "&" : "?";
+    const res = await fetch(`${targetUrl}${sep}action=adigaCutoffs&month=${curMonth}&t=${Date.now()}`, { method: "GET", redirect: "follow" });
+    if(res.ok){
+     const json = await res.json();
+     if(Array.isArray(json?.cutoffs) && json.cutoffs.length > 0){
+      remoteRows = json.cutoffs;
+      noteText = `대입정보포털 '어디가' 서버 최신 데이터(${json.cutoffs.length}개 학과) 반영 완료`;
+     }
+    }
+   } catch {}
+  }
+
+  const nextMeta = {
+   lastSyncedMonth: curMonth,
+   lastSyncedDate: day(),
+   sourceNote: noteText,
+   remoteRows
+  };
+  setAdigaSyncMeta(nextMeta);
+  try { localStorage.setItem("gyomusil-adiga-sync-meta", JSON.stringify(nextMeta)); } catch {}
+  if(!silent) notify(`✅ ${noteText} (기준일: ${day()})`);
+ }
+
  useEffect(() => {
   if(loaded && page === "매일 문해력" && gasUrl.trim() && !autoFetchedRef.current) {
    autoFetchedRef.current = true;
    fetchFromDrive(true);
+  }
+  if(loaded && page === "대입 진학 상담실"){
+   const curMonth = new Date().toISOString().slice(0, 7);
+   if(adigaSyncMeta?.lastSyncedMonth !== curMonth){
+    syncMonthlyAdigaCutoffs(true);
+   }
   }
  }, [loaded, page]);
 
@@ -6447,6 +7116,8 @@ exp에는 정답 이유와 학습 목표·일반화 연결을 설명하고 사�
   "학급·수업 운영": [
    ["출결·제출물 관리", User],
    ...(data.profile.homeroom ? [["우리반 담임실", Layers]] : []),
+   ["학점제 과목 설계실", Target],
+   ["대입 진학 상담실", Sparkles],
    ["온라인 등록부", Edit],
    ["교사용 자료실", Folder]
   ],
@@ -6457,6 +7128,7 @@ exp에는 정답 이유와 학습 목표·일반화 연결을 설명하고 사�
    ["알림장·문자", Send]
   ]
  };
+
 
  const nav = navOrder.filter(k => baseNavMap[k]).map(k => [k, baseNavMap[k]]);
  const busyView=busy&&<div className="mb-5 rounded-2xl border-2 border-brand bg-gradient-to-r from-[#f2ecff] via-[#faf8fe] to-white p-5 shadow-md"><div className="flex flex-wrap items-center justify-between gap-4"><div className="space-y-1.5"><p role="status" className="flex items-center gap-2.5 text-sm font-bold text-brand"><Loader2 className="h-5 w-5 animate-spin shrink-0"/><span>{busy} (보통 1~2분 정도 소요됩니다)</span></p><p className="text-xs leading-6 text-slate-600">💡 <strong>선생님, 잠시만 기다려 주세요!</strong> AI가 대용량 문서와 맞춤형 양식을 정밀하게 작성하고 있습니다. 일시적인 서버 과부하가 있더라도 <strong>1~2분 내외로 완료되오니 다른 메뉴로 이동하거나 새로고침하지 마시고 이 화면에서 잠시만 기다려 주세요.</strong> (혹시 시간 초과 시에도 입력하신 내용은 사라지지 않습니다.)</p></div><Button onClick={cancel}>요청 취소</Button></div></div>;
@@ -6714,6 +7386,31 @@ const renderInstallModal = () => modal?.type==="install" && (
 
     {authError && <Note error>{authError}</Note>}
     {authNotice && <Note>{authNotice}</Note>}
+
+    {pendingApprovalBanner && (
+     <div className="rounded-2xl border-2 border-amber-400 bg-amber-50/90 p-4 text-xs leading-6 text-amber-950 space-y-2.5 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+       <span className="rounded-md bg-amber-600 px-2 py-0.5 text-[11px] font-extrabold text-white">⏳ 관리자 승인 대기 안내</span>
+       <button type="button" onClick={()=>setPendingApprovalBanner(null)} className="text-amber-700 hover:text-amber-950 font-bold">✕</button>
+      </div>
+      <p className="font-bold text-ink">
+       <strong>[{pendingApprovalBanner.school}] {pendingApprovalBanner.name}</strong> ({pendingApprovalBanner.username}) 계정은 현재 <strong>소속 학교 관리자 또는 총괄 마스터의 승인 대기 상태</strong>입니다.
+      </p>
+      <p className="text-[11.5px] text-slate-700">
+       학생 명렬과 개인정보 보호를 위해 <strong>관리자 승인 완료 후에만 교무실 입장이 가능</strong>합니다. 승인 요청 알림이 관리자에게 전달되었으며, 승인 완료 후 바로 아래 기능들을 모두 사용하실 수 있습니다.
+      </p>
+      <div className="rounded-xl border border-amber-200 bg-white p-3 space-y-1 text-[11px] text-slate-700">
+       <p className="font-extrabold text-brand">✨ 승인 완료 후 이용 가능한 스마트 교무실 핵심 기능</p>
+       <ul className="list-disc pl-4 space-y-0.5">
+        <li><strong>시간표·출결 자동 연동:</strong> 내 주간 시간표 및 담임·교과 수업반 출석부 실시간 체크</li>
+        <li><strong>수업 교체·보강 1:1 신청:</strong> 동료 교사와 일시교체·동교과 보강 신청 및 수업교체일지 출력</li>
+        <li><strong>AI 개념기반 수업 설계:</strong> 단원 PDF 분석 ➔ 과정안 · 공개수업 슬라이드 · 활동지 생성</li>
+        <li><strong>매일 문해력 & 기출 문제은행:</strong> 시사 비문학 활동지 및 모의고사 2단 시험지 자동 조판</li>
+        <li><strong>고교학점제 & 5등급제 진학 상담:</strong> 계열별 권장과목 매칭 및 대학어디가 50%·70%컷 치환</li>
+       </ul>
+      </div>
+     </div>
+    )}
 
     {(authMode === "login" || isMasterLoginView) && (
      <div className="space-y-4">
@@ -6986,6 +7683,7 @@ const renderInstallModal = () => modal?.type==="install" && (
      "과정안·학습지": { icon: Sparkles, sub: "AI LESSON STUDIO" },
      "매일 문해력": { icon: Globe, sub: "LITERACY ARCHIVE" },
      "기출 문제은행": { icon: File, sub: "QUESTION BANK" },
+     "학점제 과목 설계실": { icon: Target, sub: "CREDIT COURSE NAVI" },
      "출결·제출물 관리": { icon: User, sub: "ATTENDANCE & CLASS" },
      "우리반 담임실": { icon: Layers, sub: "HOMEROOM OFFICE" },
      "온라인 등록부": { icon: Edit, sub: "DIGITAL REGISTRY" },
@@ -7033,13 +7731,21 @@ const renderInstallModal = () => modal?.type==="install" && (
      </Button>
     ) : null;
    })()}
-   {["master","subadmin"].includes(currentUser?.role) && (
-    <Button className="!inline-flex !min-h-[36px] !h-[36px] !px-2.5 !py-0 whitespace-nowrap border-brand bg-[#faf8fe] text-brand font-bold text-xs" onClick={async()=>{await loadAccountsChannel();setModal({type:"masterAdmin"});}}>
-     <span>{currentUser.role==="master"?"👑":"🏫"}</span>
-     <span className="sm:hidden">승인</span>
-     <span className="hidden sm:inline">{currentUser.role==="master"?"총괄 마스터":`${currentUser.school} 관리`}</span>
-    </Button>
-   )}
+   {["master","subadmin"].includes(currentUser?.role) && (()=>{
+    const pendingCnt = accountsList.filter(a => !a.approved && (currentUser.role === "master" || (a.school || "광영고등학교") === currentUser.school)).length;
+    return (
+     <Button className="!inline-flex !min-h-[36px] !h-[36px] !px-2.5 !py-0 whitespace-nowrap border-brand bg-[#faf8fe] text-brand font-bold text-xs relative" onClick={async()=>{await loadAccountsChannel();setModal({type:"masterAdmin"});}}>
+      <span>{currentUser.role==="master"?"👑":"🏫"}</span>
+      <span className="sm:hidden">승인</span>
+      <span className="hidden sm:inline">{currentUser.role==="master"?"총괄 마스터":`${currentUser.school} 관리`}</span>
+      {pendingCnt > 0 && (
+       <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-extrabold text-white animate-pulse">
+        {pendingCnt}
+       </span>
+      )}
+     </Button>
+    );
+   })()}
    <Button aria-label="앱으로 설치" className="!hidden md:!inline-flex !min-h-[36px] !h-[36px] !px-2.5 !py-0 whitespace-nowrap border-brand bg-[#faf8fe] text-brand font-bold text-xs" onClick={async()=>{if(deferredPrompt){deferredPrompt.prompt();const {outcome}=await deferredPrompt.userChoice;if(outcome==="accepted")setDeferredPrompt(null);}else{setModal({type:"install"});}}}>
     <Monitor className="h-3.5 w-3.5 shrink-0"/><span className="text-xs">앱설치</span>
    </Button>
@@ -8288,6 +8994,12 @@ const renderInstallModal = () => modal?.type==="install" && (
      });
 
     return <>
+     {/* 모바일 전용: 일정 캘린더 ↔ 할 일 목록 원터치 전환 스위치 */}
+     <div className="mb-3 grid grid-cols-2 gap-1.5 rounded-xl border border-[#dcd3ee] bg-white p-1.5 shadow-2xs lg:hidden">
+      <button type="button" onClick={()=>go("할 일 목록")} className="rounded-lg bg-brand py-2 text-xs font-extrabold text-white shadow-xs">☑️ 할 일 · 마감 관리</button>
+      <button type="button" onClick={()=>go("나의 일정")} className="rounded-lg bg-paper py-2 text-xs font-bold text-slate-600">📅 일정 캘린더만 크게 보기</button>
+     </div>
+
      {/* 상단 제목·부연설명 없이 바로 캘린더 표시 */}
      <section className={`${PANEL} mb-4 p-4 sm:p-5`}>
       <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))}/>
@@ -8336,7 +9048,6 @@ const renderInstallModal = () => modal?.type==="install" && (
       </div>
      </section>
 
-
      {/* 검색창 가운데 정렬 */}
      <div className="relative mb-4">
       <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400"/>
@@ -8370,11 +9081,739 @@ const renderInstallModal = () => modal?.type==="install" && (
    })()}
 
    {page==="나의 일정"&&<>
+    {/* 모바일 전용: 일정 캘린더 ↔ 할 일 목록 원터치 전환 스위치 */}
+    <div className="mb-3 grid grid-cols-2 gap-1.5 rounded-xl border border-[#dcd3ee] bg-white p-1.5 shadow-2xs lg:hidden">
+     <button type="button" onClick={()=>go("할 일 목록")} className="rounded-lg bg-paper py-2 text-xs font-bold text-slate-600">☑️ 할 일 · 마감 관리</button>
+     <button type="button" onClick={()=>go("나의 일정")} className="rounded-lg bg-brand py-2 text-xs font-extrabold text-white shadow-xs">📅 일정 캘린더만 크게 보기</button>
+    </div>
+
     {/* 상단 제목·날짜박스·추가버튼 없이 즉시 캘린더만 표시 */}
     <section className={`${PANEL} mb-5 p-4 sm:p-5`}>
      <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))} onEditEvent={e=>setModal({type:"record",kind:"event",value:e})} onEditTask={t=>setModal({type:"record",kind:"task",value:t})}/>
     </section>
    </>}
+
+   {page==="학점제 과목 설계실"&&(()=>{
+    const allTracks = [...customAdigaList, ...DEFAULT_ADIGA_DB];
+    const filteredTracks = allTracks.filter(tr => {
+     if(!creditSearch.trim()) return true;
+     const q = creditSearch.trim().toLowerCase();
+     return `${tr.group} ${tr.title} ${tr.depts} ${tr.core.join(" ")} ${tr.recommended.join(" ")}`.toLowerCase().includes(q);
+    });
+    const activeTrack = filteredTracks.find(t => t.id === creditTrackId) || filteredTracks[0] || DEFAULT_ADIGA_DB[0];
+
+    // 우리 학교 개설 선택과목(electiveRosters 및 electiveMatrix)에서 과목별·타임별(A~M타임) 개설 현황 추출
+    const elRosters = data.schoolMasterData?.electiveRosters || {};
+    const mxRows = data.electiveMatrix?.rows || [];
+    const schoolOpenedCourses = {};
+    const schoolCoursesBySlot = {};
+
+    Object.entries(elRosters).forEach(([k, v]) => {
+     const rawSubj = String(v.subject || k).replace(/\(원\)/g,"").trim();
+     const baseName = cleanElectiveSubjToken(rawSubj).replace(/[A-N]0?$/i, "");
+     const slot = String(v.slot || (rawSubj.match(/([A-N])0?$/i)?.[1]?.toUpperCase() || "개설")).replace(/타임$/,"");
+     if(!schoolOpenedCourses[baseName]) schoolOpenedCourses[baseName] = new Set();
+     schoolOpenedCourses[baseName].add(slot);
+     if(!schoolCoursesBySlot[slot]) schoolCoursesBySlot[slot] = new Set();
+     schoolCoursesBySlot[slot].add(rawSubj);
+    });
+    mxRows.forEach(r => {
+     Object.entries(r.choices || {}).forEach(([slotRaw, subjVal]) => {
+      if(!subjVal || subjVal === "-" || subjVal === "0" || /선택과목명/.test(subjVal)) return;
+      const rawSubj = String(subjVal).replace(/\(원\)/g,"").trim();
+      const baseName = cleanElectiveSubjToken(rawSubj).replace(/[A-N]0?$/i, "");
+      const slot = String(slotRaw).replace(/타임$/,"").trim();
+      if(!schoolOpenedCourses[baseName]) schoolOpenedCourses[baseName] = new Set();
+      schoolOpenedCourses[baseName].add(slot);
+      if(!schoolCoursesBySlot[slot]) schoolCoursesBySlot[slot] = new Set();
+      schoolCoursesBySlot[slot].add(rawSubj);
+     });
+    });
+    const hasSchoolData = Object.keys(schoolOpenedCourses).length > 0;
+    const sortedSlotKeys = Object.keys(schoolCoursesBySlot).sort((a,b)=>a.localeCompare(b,"ko",{numeric:true}));
+
+    // 2022 개정 과목명과 2015 개정 과목명("미적분Ⅱ(미적분)" 등)을 분리하여 우리 학교 개설 여부 및 학생 수강 여부 매칭
+    const extractCourseTokens = (rawLabel) => {
+     return String(rawLabel || "")
+      .split(/[()/·,]+/)
+      .map(s => cleanElectiveSubjToken(s).replace(/[A-N]0?$/i, ""))
+      .filter(s => s.length >= 2);
+    };
+
+    const findSchoolSlotsForCourse = (courseLabel) => {
+     const tokens = extractCourseTokens(courseLabel);
+     const slots = new Set();
+     Object.entries(schoolOpenedCourses).forEach(([openedBase, slotSet]) => {
+      if(tokens.some(tk => openedBase === tk || openedBase.includes(tk) || tk.includes(openedBase))){
+       slotSet.forEach(s => slots.add(s));
+      }
+     });
+     return Array.from(slots).sort();
+    };
+
+    // ★ 개인정보 보호: 일반 담임교사는 오직 '우리 반(myDept)' 학생만 조회 가능하며, 타반 학생이나 비담임 교사는 '본교 개설과목 기준 직접 설계 시뮬레이터'를 사용합니다.
+    const isAdminRole = ["master","subadmin"].includes(currentUser?.role);
+    const isHomeroomTeacher = !!data.profile.homeroom;
+    const myDept = `${data.profile.grade}-${data.profile.classroom}`;
+    const allDeptsInMatrix = isAdminRole
+     ? Array.from(new Set(mxRows.map(r => r.dept).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"ko",{numeric:true}))
+     : [myDept];
+
+    const effectiveDept = isAdminRole ? (creditDeptFilter === "우리반" ? myDept : creditDeptFilter) : myDept;
+    const myClassMatrixRows = mxRows.filter(r => r.dept === effectiveDept).sort((a,b)=>a.number - b.number);
+    const candidateStudents = myClassMatrixRows.length > 0
+     ? myClassMatrixRows
+     : (effectiveDept === myDept ? (data.students || []).map(s => ({ id: s.id, dept: myDept, number: s.number, name: s.name, choices: {} })) : []);
+
+    const selectedStudent = candidateStudents.find(s => `${s.dept}-${s.number}-${s.name}` === creditStudentKey) || candidateStudents[0] || null;
+    const dbStudentChosenList = selectedStudent
+     ? Object.entries(selectedStudent.choices || {}).filter(([,v])=>v && v!=="-" && v!=="0" && !/선택과목명/.test(v)).map(([sl, v]) => ({ slot: String(sl).replace(/타임$/,""), subject: v, norm: cleanElectiveSubjToken(v).replace(/[A-N]0?$/i,"") }))
+     : [];
+
+    // 비담임 교사거나, 시뮬레이터 모드를 선택했거나, 선택된 학생의 과목 정보가 비어있을 때 시뮬레이터 리스트와 연동
+    const effectiveMode = (!isHomeroomTeacher && !isAdminRole) ? "simulator" : creditDesignMode;
+    const activeChosenList = effectiveMode === "simulator"
+     ? simSelectedCourses.map(c => ({ slot: c.slot, subject: c.subject, norm: cleanElectiveSubjToken(c.subject).replace(/[A-N]0?$/i,"") }))
+     : dbStudentChosenList;
+
+    const toggleSimCourse = (slotLabel, subjLabel) => {
+     const cleanSlot = String(slotLabel || "선택").replace(/타임$/,"");
+     setSimSelectedCourses(prev => {
+      const exists = prev.some(x => x.slot === cleanSlot && x.subject === subjLabel);
+      if(exists) return prev.filter(x => !(x.slot === cleanSlot && x.subject === subjLabel));
+      return [...prev, { slot: cleanSlot, subject: subjLabel }];
+     });
+    };
+
+    const checkStudentTookCourse = (courseLabel) => {
+     const tokens = extractCourseTokens(courseLabel);
+     return activeChosenList.find(ch => tokens.some(tk => ch.norm === tk || ch.norm.includes(tk) || tk.includes(ch.norm)));
+    };
+
+    const coreResults = (activeTrack.core || []).map(cName => ({
+     name: cName,
+     schoolSlots: findSchoolSlotsForCourse(cName),
+     studentTaken: checkStudentTookCourse(cName)
+    }));
+    const recResults = (activeTrack.recommended || []).map(cName => ({
+     name: cName,
+     schoolSlots: findSchoolSlotsForCourse(cName),
+     studentTaken: checkStudentTookCourse(cName)
+    }));
+
+    // 동일 타임(단일 타임) 충돌 감지 (학교 편제 기준 & 시뮬레이터 선택 기준)
+    const singleSlotMap = {};
+    coreResults.forEach(cr => {
+     if(cr.schoolSlots.length === 1){
+      const sl = cr.schoolSlots[0];
+      if(!singleSlotMap[sl]) singleSlotMap[sl] = [];
+      singleSlotMap[sl].push(cr.name);
+     }
+    });
+    const slotConflicts = Object.entries(singleSlotMap).filter(([, arr]) => arr.length >= 2);
+
+    const simDuplicateSlots = {};
+    if(effectiveMode === "simulator"){
+     simSelectedCourses.forEach(c => {
+      if(c.slot && c.slot !== "직접선택" && c.slot !== "개설"){
+       if(!simDuplicateSlots[c.slot]) simDuplicateSlots[c.slot] = [];
+       simDuplicateSlots[c.slot].push(c.subject);
+      }
+     });
+    }
+    const simSlotWarnings = Object.entries(simDuplicateSlots).filter(([, arr]) => arr.length >= 2);
+
+    // 전공 계열별 맞춤형 심화 상담 질문 & 학생부 연계 가이드 자동 생성
+    const getCounselingGuideForTrack = (track) => {
+     const isStem = ["med","nurse","cs","ee","mech","chem","bio","arch","math"].includes(track.id);
+     return {
+      questions: isStem ? [
+       `“${track.group} 계열은 대학에서 수학(미적분·기하)과 과학 진로선택(Ⅱ과목) 이수 여부를 가장 먼저 확인해. 현재 계획한 과목 중 빠진 핵심과목은 없니?”`,
+       "“상대평가(5등급 병기) 일반선택 과목의 내신 부담 때문에 진로에 꼭 필요한 핵심 과학·수학 과목을 피하고 있지는 않니?”",
+       "“우리 학교에 개설되지 않았거나 타임이 겹쳐서 못 듣는 핵심 과목이 있다면, 공동교육과정(온라인학교)이나 독서·세특 탐구로 어떻게 보완할지 같이 계획해 볼까?”"
+      ] : [
+       `“${track.group} 계열은 사회·인문 교과의 폭넓은 이수뿐만 아니라 데이터 해석력(확률과 통계, 경제 수학 등)을 함께 평가하는 대학이 많아. 수학·탐구 균형은 어떠니?”`,
+       "“단순히 인원수가 많거나 성적 따기 쉬운 과목 위주로만 고르지 않고, 네가 희망하는 전공에 대한 호기심을 보여줄 진로·융합선택 과목을 포함했니?”",
+       "“수업 시간에 진행할 주제탐구 발표나 심화 독서를 네 희망 진로와 어떻게 연결할지 키워드를 미리 정해볼까?”"
+      ],
+      alternatives: [
+       "🏫 [타임 충돌 시 대안] 같은 타임(예: A타임)에 들어야 할 핵심권장과목 2개가 겹치면, 1순위 핵심과목을 본교 정규수업으로 수강하고 나머지 과목은 방과후·주말 ‘공동교육과정(꿈두레·온라인학교)’으로 이수하도록 안내하세요.",
+       "📖 [미개설 과목 보완법] 대학 권장과목이 본교에 미개설된 경우, 대입 전형에서 불이익을 주지 않는 것이 원칙입니다. 단, 연관된 선행 일반선택 과목의 ‘세부능력 및 특기사항(세특)’과 ‘진로활동·독서’에서 해당 심화 주제를 탐구하도록 지도하시면 학종 평가에서 충분히 인정받습니다.",
+       "⚖️ [일반선택 vs 진로선택 균형] 2022 개정 교육과정에서는 일반선택(5등급 상대평가 병기)의 기초 소양과 진로·융합선택(성취도 A~E 중심)의 전공 심화 역량을 조화롭게 구성하는 것이 중요합니다."
+      ]
+     };
+    };
+    const counselGuide = getCounselingGuideForTrack(activeTrack);
+
+    // 대입정보포털 '어디가' 커스텀 CSV/엑셀 업로드 핸들러
+    const handleAdigaFileUpload = async (file) => {
+     if(!file) return;
+     try {
+      let rows = [];
+      if(/\.xlsx?$/i.test(file.name)){
+       if(!window.XLSX) throw Error("엑셀 라이브러리를 준비 중입니다.");
+       const buf = await file.arrayBuffer();
+       const wb = window.XLSX.read(buf, { type: "array", raw: false });
+       wb.SheetNames.forEach(sn => {
+        rows.push(...window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "", raw: false }));
+       });
+      } else {
+       const txt = await readCsvOrTextFileSmart(file);
+       rows = txt.replace(/^\ufeff/,"").split(/\r?\n/).map(r=>r.trim()).filter(Boolean).map(splitCsvLineSafe);
+      }
+      const imported = [];
+      rows.slice(1).forEach((r, idx) => {
+       const group = String(r[0] || "").trim();
+       const depts = String(r[1] || "").trim();
+       const coreRaw = String(r[2] || "").trim();
+       const recRaw = String(r[3] || "").trim();
+       const tip = String(r[4] || "대학별 모집요강 및 대입정보포털 어디가 기준 권장과목입니다.").trim();
+       if(!group && !depts) return;
+       imported.push({
+        id: `custom-adiga-${Date.now()}-${idx}`,
+        group: group || "추가계열",
+        title: `🎓 [${group || "맞춤"}] ${depts.slice(0, 28)}`,
+        depts: depts || group,
+        core: coreRaw.split(/[,/·]+/).map(s=>s.trim()).filter(Boolean),
+        recommended: recRaw.split(/[,/·]+/).map(s=>s.trim()).filter(Boolean),
+        tip
+       });
+      });
+      if(!imported.length) throw Error("인식된 행이 없습니다. [계열명, 대표학과, 핵심권장과목, 권장과목, 진로팁] 양식을 확인해 주세요.");
+      const nextList = [...imported, ...customAdigaList];
+      setCustomAdigaList(nextList);
+      localStorage.setItem("gyomusil-adiga-custom", JSON.stringify(nextList));
+      setCreditTrackId(imported[0].id);
+      notify(`대입정보포털 '어디가' 맞춤 권장과목 ${imported.length}개 계열을 추가 등록했습니다!`);
+     } catch(err) {
+      notify("권장과목 파일 업로드 실패: " + err.message);
+     }
+    };
+
+    const printCourseDiagnosisHTML = () => {
+     const stuTitle = effectiveMode === "simulator"
+      ? (simCustomStuName.trim() || "본교 개설과목 기준 모의 설계")
+      : (selectedStudent ? `${selectedStudent.dept} ${selectedStudent.number}번 ${selectedStudent.name}` : "학생 미선택");
+     return printDocument(`${stuTitle}_고교학점제_과목설계_진단표`, `<section class="doc">
+      <div>
+       <p class="small" style="font-weight:700">${esc(data.profile.school)} · 고교학점제 진로·학업설계 맞춤형 컨설팅 리포트</p>
+       <h1>고교학점제 선택과목 설계 및 권장과목 진단표</h1>
+       <div class="meta">대상: <strong>${esc(stuTitle)}</strong> · 희망 계열: <strong>${esc(activeTrack.title)}</strong> · 설계일: ${esc(dateLabel(day()))}</div>
+       <h2>1. 희망 전공 계열 및 대교협 '어디가' 권장과목 기준</h2>
+       <table>
+        <tr><th style="width:22%">관련 학과(모집단위)</th><td>${esc(activeTrack.depts)}</td></tr>
+        <tr><th>🥇 핵심 권장과목<br>(필수 이수 권장)</th><td><strong>${esc(activeTrack.core.join(", "))}</strong></td></tr>
+        <tr><th>🥈 권장과목<br>(심화·연계 권장)</th><td>${esc(activeTrack.recommended.join(", "))}</td></tr>
+        <tr><th>💡 대입 평가 포인트</th><td>${esc(activeTrack.tip)}</td></tr>
+       </table>
+       <h2>2. 본교 개설 여부 및 과목 설계 매칭 진단</h2>
+       <table>
+        <thead><tr><th style="width:18%">구분</th><th style="width:32%">권장 과목명</th><th style="width:25%">본교 개설 현황</th><th style="width:25%">학생 신청·설계 진단</th></tr></thead>
+        <tbody>
+         ${coreResults.map(cr => `<tr><td style="text-align:center;font-weight:700;color:#dc2626">핵심권장</td><td><strong>${esc(cr.name)}</strong></td><td style="text-align:center">${cr.schoolSlots.length?"본교 개설":"본교 미개설(공동교육과정 권장)"}</td><td style="text-align:center;font-weight:700;color:${cr.studentTaken?"#047857":"#dc2626"}">${cr.studentTaken?`✅ 선택됨 (${esc(cr.studentTaken.subject)})`:"🚨 미선택 (추가·변경 권장)"}</td></tr>`).join("")}
+         ${recResults.map(rr => `<tr><td style="text-align:center;color:#493b7a">권장과목</td><td>${esc(rr.name)}</td><td style="text-align:center">${rr.schoolSlots.length?"본교 개설":"본교 미개설(공동교육과정 권장)"}</td><td style="text-align:center;color:${rr.studentTaken?"#047857":"#555"}">${rr.studentTaken?`✅ 선택됨 (${esc(rr.studentTaken.subject)})`:"미선택 (여건 시 권장)"}</td></tr>`).join("")}
+        </tbody>
+       </table>
+       <h2>3. 현재 신청·설계한 선택과목 전체 내역</h2>
+       <p>${activeChosenList.length ? activeChosenList.map(c => `<strong>[${esc(c.slot)}]</strong> ${esc(c.subject)}`).join(" &nbsp;|&nbsp; ") : "선택된 과목 내역이 없습니다."}</p>
+       <h2>4. 진로·학업설계 상담 안내 및 보완 전략</h2>
+       <ul>${counselGuide.alternatives.map(a => `<li>${esc(a)}</li>`).join("")}</ul>
+      </div>
+      <p class="small" style="text-align:right;margin-top:24px">상담 교사: ${esc(data.profile.teacher||"")} (확인)</p>
+     </section>`);
+    };
+
+    return <div className="space-y-5">
+     {/* 상단 안내 및 대입정보포털 '어디가' 엑셀 확장 바 */}
+     <section className={`${PANEL} p-4 sm:p-5 border-2 border-[#dcd3ee] bg-gradient-to-r from-[#f6f2ff] via-[#faf8fe] to-white flex flex-wrap items-center justify-between gap-3`}>
+      <div>
+       <div className="flex flex-wrap items-center gap-2">
+        <Tag>대교협 '어디가(adiga.kr)' 권장과목 DB 내장</Tag>
+        <Tag>{hasSchoolData ? `🏫 본교 개설과목 ${Object.keys(schoolOpenedCourses).length}개 연동됨` : "🏫 본교 선택과목 연동 대기"}</Tag>
+        <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">🔒 개인정보 보호 적용 (담임반 외 열람 차단)</span>
+       </div>
+       <h2 className="mt-2 text-base sm:text-lg font-extrabold text-ink">🎓 고교학점제 진로·전공별 선택과목 설계 & 상담 시뮬레이터</h2>
+       <p className="mt-0.5 text-xs text-slate-600">
+        담임 선생님은 <strong>우리 반({myDept}) 학생</strong>을 바로 진단할 수 있고, <strong>우리 반이 아니거나 선택과목 정보가 없는 학생</strong>은 <strong>[🏫 본교 개설과목 기준 직접 설계]</strong>로 즉시 시뮬레이션할 수 있습니다.
+       </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+       <Button onClick={()=>csv("어디가_권장과목_추가양식.csv",["계열명","대표학과","핵심권장과목(쉼표구분)","권장과목(쉼표구분)","진로상담팁"],[["반도체·첨단소재","반도체시스템공학과, 나노공학과","미적분Ⅱ(미적분), 기하, 물리학(물리학Ⅰ), 역학과 에너지(물리학Ⅱ), 화학(화학Ⅰ)","전자기와 양자(물리학Ⅱ), 물질과 에너지(화학Ⅱ), 정보","물리학Ⅱ와 미적분Ⅱ 이수가 필수입니다."]])}>
+        <Download className="h-4 w-4"/>어디가 DB 양식
+       </Button>
+       <label className="inline-flex min-h-[42px] cursor-pointer items-center gap-2 rounded-xl border border-brand bg-white px-3.5 py-2 text-xs font-extrabold text-brand hover:bg-[#faf8fe]">
+        <Upload className="h-4 w-4"/>+ '어디가' 권장과목 엑셀/CSV 추가
+        <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e=>{const f=e.target.files?.[0];e.target.value="";if(f)handleAdigaFileUpload(f);}}/>
+       </label>
+      </div>
+     </section>
+
+     {/* STEP 1. 전공 계열 선택 (모바일에서도 한 손 터치 가능한 칩 & 검색) */}
+     <section className={`${PANEL} p-4 sm:p-5 space-y-3`}>
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+       <span className="text-xs font-extrabold text-brand">STEP 1 · 희망 진로·전공 계열 선택 ({filteredTracks.length}개 계열)</span>
+       <div className="relative w-full sm:w-72">
+        <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400"/>
+        <input
+         value={creditSearch}
+         onChange={e => setCreditSearch(e.target.value)}
+         placeholder="학과명·과목명 검색 (예: 간호, 반도체, 경제)"
+         className={INPUT + " !py-1.5 pl-9 !text-xs"}
+        />
+       </div>
+      </div>
+      <div className="flex overflow-x-auto no-scrollbar sm:flex-wrap gap-1.5 pb-1">
+       {filteredTracks.map(tr => {
+        const active = activeTrack.id === tr.id;
+        return (
+         <button
+          type="button"
+          key={tr.id}
+          onClick={() => setCreditTrackId(tr.id)}
+          className={`shrink-0 whitespace-nowrap rounded-xl border px-3.5 py-2 text-xs font-extrabold transition-all ${active ? "border-brand bg-brand text-white shadow-sm" : "border-[#dcd3ee] bg-[#faf8fe] text-slate-700 hover:border-brand"}`}
+         >
+          {tr.group}
+         </button>
+        );
+       })}
+      </div>
+     </section>
+
+     {/* STEP 2 & STEP 3. 좌측: 전공 권장과목 ↔ 본교 개설 여부 대조 + 상담 팁 / 우측: 우리 반 진단 & 본교 개설과목 모의 설계 시뮬레이터 */}
+     <div className="grid items-start gap-5 lg:grid-cols-2">
+      {/* 좌측: 선택한 계열의 핵심권장·권장과목 및 본교 개설 현황 + 교사용 상담 팁 */}
+      <section className={`${PANEL} p-5 border-2 border-[#dcd3ee] space-y-4`}>
+       <div className="border-b border-line pb-3 space-y-1.5">
+        <Tag>STEP 2 · 대교협 권장과목 ↔ 본교 개설 여부 자동 대조</Tag>
+        <h3 className="text-lg font-extrabold text-ink">{activeTrack.title}</h3>
+        <p className="text-xs text-slate-600"><strong>관련 학과:</strong> {activeTrack.depts}</p>
+       </div>
+
+       <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5 text-xs leading-6 text-amber-950 space-y-1">
+        <p className="font-extrabold text-amber-900">💡 [{activeTrack.group}] 대입 학생부·교과전형 핵심 팁</p>
+        <p>{activeTrack.tip}</p>
+       </div>
+
+       {/* 핵심 권장과목 (클릭 시 우측 시뮬레이터에 바로 담기/빼기 가능) */}
+       <div className="space-y-2">
+        <h4 className="text-xs font-extrabold text-red-600 flex items-center justify-between">
+         <span>🥇 핵심 권장과목 (대학에서 필수 이수를 권장하는 과목)</span>
+         <span className="text-[11px] font-semibold text-slate-500">과목 클릭 시 모의설계에 추가</span>
+        </h4>
+        <div className="space-y-2">
+         {coreResults.map(cr => (
+          <div
+           key={cr.name}
+           onClick={() => {
+            setCreditDesignMode("simulator");
+            toggleSimCourse(cr.schoolSlots[0] || "직접선택", cr.name);
+           }}
+           className="cursor-pointer flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 border-red-200 bg-red-50/30 px-3.5 py-2.5 text-xs transition-all hover:border-red-400"
+           title="클릭하면 우측 모의 설계 바구니에 추가/해제됩니다"
+          >
+           <span className="font-extrabold text-ink text-sm">{cr.name}</span>
+           <div className="flex flex-wrap items-center gap-1.5">
+            {cr.schoolSlots.length > 0 ? (
+             <span className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-extrabold text-white">
+              🟢 본교 개설
+             </span>
+            ) : hasSchoolData ? (
+             <span className="rounded-lg bg-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+              ⚪ 본교 미개설 (공동교육과정 권장)
+             </span>
+            ) : (
+             <span className="rounded-lg bg-[#f0ecfa] px-2.5 py-1 text-[11px] font-bold text-brand">필수 권장 (+담기)</span>
+            )}
+           </div>
+          </div>
+         ))}
+        </div>
+       </div>
+
+       {/* 일반 권장과목 */}
+       <div className="space-y-2 pt-2">
+        <h4 className="text-xs font-extrabold text-brand flex items-center justify-between">
+         <span>🥈 권장과목 (진로 심화 및 가산점 권장 과목)</span>
+         <span className="text-[11px] font-semibold text-slate-500">{recResults.length}과목</span>
+        </h4>
+        <div className="grid gap-2 sm:grid-cols-2">
+         {recResults.map(rr => (
+          <div
+           key={rr.name}
+           onClick={() => {
+            setCreditDesignMode("simulator");
+            toggleSimCourse(rr.schoolSlots[0] || "직접선택", rr.name);
+           }}
+           className="cursor-pointer flex items-center justify-between gap-2 rounded-xl border border-[#dcd3ee] bg-[#faf8fe] px-3 py-2 text-xs hover:border-brand"
+           title="클릭하면 우측 모의 설계 바구니에 추가/해제됩니다"
+          >
+           <span className="font-bold text-ink truncate">{rr.name}</span>
+           {rr.schoolSlots.length > 0 ? (
+            <span className="shrink-0 rounded bg-emerald-100 px-2 py-0.5 text-[10.5px] font-extrabold text-emerald-800">
+             🟢 본교 개설
+            </span>
+           ) : hasSchoolData ? (
+            <span className="shrink-0 rounded bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+             ⚪ 미개설(공동권장)
+            </span>
+           ) : (
+            <span className="shrink-0 rounded bg-white border border-line px-2 py-0.5 text-[10px] text-slate-400">+담기</span>
+           )}
+          </div>
+         ))}
+        </div>
+       </div>
+
+
+       {/* 교사용 실전 상담 팁 & 발문 가이드 박스 */}
+       <div className="rounded-xl border-2 border-[#dcd3ee] bg-[#faf8fe] p-4 space-y-3 pt-3">
+        <div className="flex items-center justify-between">
+         <h4 className="text-xs font-extrabold text-brand">🗣️ 선생님용 실전 과목설계 상담 질문 & 대안 가이드</h4>
+         <button
+          type="button"
+          onClick={() => {
+           const txt = `[${activeTrack.title} 과목 설계 상담 안내]\n• 핵심 권장과목: ${activeTrack.core.join(", ")}\n• 권장과목: ${activeTrack.recommended.join(", ")}\n• 대입 팁: ${activeTrack.tip}\n• 보완 전략:\n- ${counselGuide.alternatives.join("\n- ")}`;
+           copy(txt).then(() => notify("해당 계열의 상담 팁과 권장과목 안내문을 복사했습니다!"));
+          }}
+          className="rounded-lg border border-brand bg-white px-2.5 py-1 text-[11px] font-bold text-brand hover:bg-brand hover:text-white"
+         >
+          📋 상담 안내문 복사
+         </button>
+        </div>
+        <div className="space-y-1.5 text-xs leading-5 text-slate-700">
+         <p className="font-bold text-ink">💬 학생에게 이렇게 질문하며 상담을 시작해 보세요:</p>
+         {counselGuide.questions.map((q, idx) => (
+          <p key={idx} className="rounded-lg bg-white border border-line px-3 py-2 text-[11.5px] text-slate-700">{q}</p>
+         ))}
+        </div>
+        <details className="rounded-lg border border-line bg-white p-2.5 text-xs">
+         <summary className="cursor-pointer font-extrabold text-slate-700">📌 미개설 과목 · 타임 충돌 · 내신 등급 부담 시 상담 팁 보기</summary>
+         <div className="mt-2 space-y-1.5 text-[11.5px] leading-5 text-slate-600 border-t border-line pt-2">
+          {counselGuide.alternatives.map((alt, idx) => <p key={idx}>{alt}</p>)}
+         </div>
+        </details>
+       </div>
+      </section>
+
+      {/* 우측: STEP 3. [우리 반 학생 조회(담임 전용)] ↔ [우리 학교 개설과목 기준 직접 설계 시뮬레이터(타반·정보미등록·비담임 공용)] */}
+      <section className={`${PANEL} p-5 border-2 border-brand bg-white space-y-4`}>
+       <div className="border-b border-line pb-3 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+         <Tag>STEP 3 · 개인정보 보호형 과목 진단 & 본교 개설과목 기준 설계</Tag>
+         <Button className="!min-h-[32px] !px-2.5 !py-1 !text-xs" onClick={()=>print(printCourseDiagnosisHTML())}>
+          <Monitor className="h-3.5 w-3.5"/>설계·진단표 인쇄
+         </Button>
+        </div>
+
+        {/* 모드 전환 탭: 담임교사는 [우리반 학생 조회]와 [본교 개설과목 직접 설계] 선택 가능 / 비담임교사는 [본교 개설과목 직접 설계] 전용 */}
+        <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-[#dcd3ee] bg-paper p-1">
+         <button
+          type="button"
+          onClick={() => {
+           if(!isHomeroomTeacher && !isAdminRole){
+            notify("개인정보 보호를 위해 학생별 신청 내역 조회는 담임교사(본인 학급 한정)만 가능합니다. 본교 개설과목 기준 설계 모드를 이용해 주세요.");
+            return;
+           }
+           setCreditDesignMode("homeroom");
+          }}
+          className={`rounded-lg py-2 px-2 text-xs font-extrabold transition-all ${effectiveMode === "homeroom" ? "bg-brand text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}
+         >
+          🏫 우리 반({myDept}) 학생 조회
+         </button>
+         <button
+          type="button"
+          onClick={() => setCreditDesignMode("simulator")}
+          className={`rounded-lg py-2 px-2 text-xs font-extrabold transition-all ${effectiveMode === "simulator" ? "bg-brand text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}
+         >
+          🧭 본교 개설과목 기준 직접 설계
+         </button>
+        </div>
+
+        {effectiveMode === "homeroom" ? (
+         <div className="space-y-2 pt-1">
+          <div className="grid grid-cols-2 gap-2">
+           {isAdminRole ? (
+            <select
+             aria-label="진단할 학반 선택(관리자)"
+             value={creditDeptFilter}
+             onChange={e => { setCreditDeptFilter(e.target.value); setCreditStudentKey(""); }}
+             className={INPUT + " !py-2 font-bold text-brand"}
+            >
+             <option value="우리반">🏫 우리반 ({myDept})</option>
+             {allDeptsInMatrix.filter(d => d !== myDept).map(d => <option key={d} value={d}>👑 [관리자] {d}반</option>)}
+            </select>
+           ) : (
+            <div className="flex items-center rounded-lg border border-[#dcd3ee] bg-[#faf8fe] px-3 py-2 text-xs font-extrabold text-brand">
+             🔒 우리 반 ({myDept}반) 전용
+            </div>
+           )}
+           <select
+            aria-label="우리 반 학생 선택"
+            value={selectedStudent ? `${selectedStudent.dept}-${selectedStudent.number}-${selectedStudent.name}` : ""}
+            onChange={e => setCreditStudentKey(e.target.value)}
+            className={INPUT + " !py-2 font-extrabold text-ink"}
+           >
+            {candidateStudents.length === 0 && <option value="">우리 반 학생 명단 없음</option>}
+            {candidateStudents.map(s => {
+             const k = `${s.dept}-${s.number}-${s.name}`;
+             return <option key={k} value={k}>{s.dept} · {s.number}번 {s.name}</option>;
+            })}
+           </select>
+          </div>
+          <p className="text-[11px] text-slate-500">
+           💡 <strong>타 학반 학생</strong>을 상담하시거나 아직 선택과목 정보가 없는 학생은 우측 상단 <strong>[🧭 본교 개설과목 기준 직접 설계]</strong> 탭을 누르면 개인정보 노출 없이 우리 학교 개설 과목으로 바로 설계할 수 있습니다.
+          </p>
+         </div>
+        ) : (
+         <div className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-3 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+           <span className="text-xs font-extrabold text-brand">🧭 우리 반이 아니거나 정보가 없는 학생 맞춤형 과목 설계 시뮬레이터</span>
+           {simSelectedCourses.length > 0 && (
+            <button type="button" onClick={()=>setSimSelectedCourses([])} className="text-[11px] font-bold text-red-600 underline">선택 초기화</button>
+           )}
+          </div>
+          <p className="text-[11px] text-slate-600 leading-5">
+           아래 <strong>우리 학교 타임별(A~M타임) 개설 과목</strong>(또는 좌측의 권장과목 카드)을 클릭해 담아보세요. 선택한 과목들이 희망 전공의 핵심·권장과목을 얼마나 충족하는지 즉시 진단합니다.
+          </p>
+          <input
+           value={simCustomStuName}
+           onChange={e => setSimCustomStuName(e.target.value)}
+           placeholder="상담 학생 이름·학반 메모 (선택 입력 · 인쇄 및 상담일지 기록용)"
+           className={INPUT + " !py-1.5 !text-xs bg-white"}
+          />
+         </div>
+        )}
+       </div>
+
+       {/* [본교 개설과목 기준 직접 설계 모드]일 때 표시되는 우리 학교 타임별 개설 과목 선택 팔레트 */}
+       {effectiveMode === "simulator" && (
+        <div className="space-y-3 rounded-xl border border-line bg-paper p-3.5">
+         <div className="flex items-center justify-between">
+          <span className="text-xs font-extrabold text-ink">
+           🏫 {hasSchoolData ? `우리 학교 타임별 개설 선택과목 클릭하여 담기 (${sortedSlotKeys.length}개 타임)` : "표준 선택과목 빠른 담기 (좌측 권장과목 클릭 가능)"}
+          </span>
+          <span className="text-[11px] font-bold text-brand">선택됨: {simSelectedCourses.length}과목</span>
+         </div>
+
+         {hasSchoolData ? (
+          <div className="max-h-56 overflow-y-auto space-y-2.5 pr-1">
+           {sortedSlotKeys.map(slotKey => {
+            const subjList = Array.from(schoolCoursesBySlot[slotKey] || []).sort((a,b)=>a.localeCompare(b,"ko"));
+            return (
+             <div key={slotKey} className="rounded-lg border border-line bg-white p-2.5 space-y-1.5">
+              <div className="text-[11px] font-extrabold text-brand">[{slotKey}타임 개설 과목] — 1과목 선택 권장</div>
+              <div className="flex flex-wrap gap-1.5">
+               {subjList.map(subj => {
+                const isPicked = simSelectedCourses.some(x => x.slot === slotKey && x.subject === subj);
+                const normSubj = cleanElectiveSubjToken(subj).replace(/[A-N]0?$/i,"");
+                const isCoreMatch = (activeTrack.core || []).some(c => extractCourseTokens(c).some(tk => normSubj === tk || normSubj.includes(tk) || tk.includes(normSubj)));
+                const isRecMatch = (activeTrack.recommended || []).some(c => extractCourseTokens(c).some(tk => normSubj === tk || normSubj.includes(tk) || tk.includes(normSubj)));
+                return (
+                 <button
+                  type="button"
+                  key={subj}
+                  onClick={() => toggleSimCourse(slotKey, subj)}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition-all ${
+                   isPicked
+                    ? "border-brand bg-brand text-white shadow-xs"
+                    : isCoreMatch
+                    ? "border-red-300 bg-red-50 text-red-800 hover:bg-red-100"
+                    : isRecMatch
+                    ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                    : "border-line bg-paper text-slate-700 hover:border-brand"
+                  }`}
+                 >
+                  {isPicked && "✓ "}
+                  {isCoreMatch && !isPicked && "🥇"}
+                  {isRecMatch && !isPicked && "🥈"}
+                  {subj}
+                 </button>
+                );
+               })}
+              </div>
+             </div>
+            );
+           })}
+          </div>
+         ) : (
+          <div className="rounded-lg border border-dashed border-[#dcd3ee] bg-white p-3 text-xs text-slate-600 space-y-2">
+           <p>💡 아직 마스터 엑셀(본교 선택과목 편제표)이 업로드되지 않았습니다. 좌측의 <strong>[🥇 핵심 권장과목]</strong>이나 <strong>[🥈 권장과목]</strong> 박스를 터치하시면 바로 아래 설계 바구니에 담겨 시뮬레이션됩니다!</p>
+           <div className="flex flex-wrap gap-1.5">
+            {[...activeTrack.core, ...activeTrack.recommended].map(cName => {
+             const isPicked = simSelectedCourses.some(x => x.subject === cName);
+             return (
+              <button
+               type="button"
+               key={cName}
+               onClick={() => toggleSimCourse("직접선택", cName)}
+               className={`rounded-lg border px-2.5 py-1 text-xs font-bold ${isPicked ? "border-brand bg-brand text-white" : "border-line bg-paper text-slate-700 hover:border-brand"}`}
+              >
+               {isPicked ? "✓ " : "+ "}{cName}
+              </button>
+             );
+            })}
+           </div>
+          </div>
+         )}
+
+         {simSlotWarnings.length > 0 && (
+          <div className="rounded-lg border border-red-300 bg-red-50 p-2.5 text-xs font-bold text-red-700">
+           🚨 동일 타임 중복 선택 경고: {simSlotWarnings.map(([sl, arr]) => `[${sl}타임: ${arr.join(", ")}]`).join(" / ")} — 같은 타임 과목은 동시에 수강할 수 없으니 1과목만 선택하도록 조정해 주세요!
+          </div>
+         )}
+        </div>
+       )}
+
+       {/* 우리 반 학생 조회 모드인데 해당 학생의 선택과목 데이터가 비어 있을 때 자동 안내 배너 */}
+       {effectiveMode === "homeroom" && selectedStudent && dbStudentChosenList.length === 0 && (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3.5 space-y-2 text-xs text-amber-950">
+         <p className="font-extrabold text-amber-900">ℹ️ {selectedStudent.name} 학생은 아직 등록된 선택과목 신청 내역이 없습니다.</p>
+         <p className="leading-5">1학년이거나 선택과목 엑셀 업로드 전인 경우, 아래 버튼을 눌러 <strong>우리 학교 개설과목 기준으로 학생과 함께 직접 과목을 골라보며 설계</strong>해 주세요!</p>
+         <Button
+          primary
+          className="!min-h-[36px] !px-3 !py-1.5 !text-xs"
+          onClick={() => {
+           setSimCustomStuName(`${selectedStudent.dept} ${selectedStudent.number}번 ${selectedStudent.name}`);
+           setCreditDesignMode("simulator");
+          }}
+         >
+          🧭 {selectedStudent.name} 학생과 본교 개설과목 기준으로 직접 설계 시작하기 →
+         </Button>
+        </div>
+       )}
+
+       {/* 현재 신청·설계된 과목 바구니 & 전공 권장과목 충족 진단 결과 (두 모드 공통) */}
+       <div className="space-y-4">
+        <div className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-3.5 space-y-2">
+         <div className="flex items-center justify-between">
+          <span className="text-xs font-extrabold text-ink">
+           📋 {effectiveMode === "simulator" ? `${simCustomStuName.trim() || "모의 설계"} 선택 바구니 (${activeChosenList.length}과목)` : `${selectedStudent ? `${selectedStudent.dept} ${selectedStudent.number}번 ${selectedStudent.name}` : "학생"} 현재 신청 과목 (${activeChosenList.length}과목)`}
+          </span>
+          {effectiveMode === "homeroom" && dbStudentChosenList.length > 0 && (
+           <button
+            type="button"
+            onClick={() => {
+             setSimCustomStuName(`${selectedStudent.dept} ${selectedStudent.number}번 ${selectedStudent.name}`);
+             setSimSelectedCourses(dbStudentChosenList.map(c => ({ slot: c.slot, subject: c.subject })));
+             setCreditDesignMode("simulator");
+             notify("학생의 현재 신청 과목을 시뮬레이터로 불러왔습니다. 과목을 추가·변경해 보세요!");
+            }}
+            className="text-[11px] font-bold text-brand underline"
+           >
+            이 과목들을 시뮬레이터로 복사해 변경해보기 →
+           </button>
+          )}
+         </div>
+         {activeChosenList.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+           {activeChosenList.map(ch => (
+            <span key={`${ch.slot}-${ch.subject}`} className="inline-flex items-center gap-1 rounded-lg border border-[#dcd3ee] bg-white px-2.5 py-1 text-xs font-bold text-ink">
+             <strong className="text-brand">{ch.slot}:</strong> {ch.subject}
+             {effectiveMode === "simulator" && (
+              <button type="button" onClick={() => toggleSimCourse(ch.slot, ch.subject)} className="ml-1 text-slate-400 hover:text-red-600">✕</button>
+             )}
+            </span>
+           ))}
+          </div>
+         ) : (
+          <p className="text-xs text-slate-400">
+           {effectiveMode === "simulator" ? "위 타임별 개설 과목이나 좌측 권장과목을 클릭해 과목을 담아보세요." : "등록된 선택과목 내역이 없습니다."}
+          </p>
+         )}
+        </div>
+
+        {/* 핵심 권장과목 충족 vs 미신청 진단 */}
+        <div className="space-y-2.5">
+         <h4 className="text-xs font-extrabold text-ink">🔍 [{activeTrack.group}] 계열 대비 이수·설계 진단 결과</h4>
+         <div className="grid gap-2">
+          {coreResults.map(cr => (
+           <div key={cr.name} className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-xs ${cr.studentTaken ? "border-emerald-300 bg-emerald-50/60" : "border-red-300 bg-red-50/60"}`}>
+            <div>
+             <span className="mr-1.5 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-extrabold text-white">핵심필수</span>
+             <strong className="font-extrabold text-ink">{cr.name}</strong>
+            </div>
+            {cr.studentTaken ? (
+             <span className="font-extrabold text-emerald-800">
+              ✅ 충족됨 ({cr.studentTaken.subject})
+             </span>
+            ) : (
+             <span className="font-extrabold text-red-700">
+              🚨 미선택 {cr.schoolSlots.length > 0 ? "— 본교 개설 (수강 권장!)" : "— 본교 미개설 (공동교육과정 권장)"}
+             </span>
+            )}
+           </div>
+          ))}
+
+          {recResults.map(rr => (
+           <div key={rr.name} className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border p-2.5 text-xs ${rr.studentTaken ? "border-emerald-200 bg-emerald-50/30" : "border-line bg-paper/60"}`}>
+            <div>
+             <span className="mr-1.5 rounded bg-[#eee9fa] px-1.5 py-0.5 text-[10px] font-bold text-brand">권장</span>
+             <span className="font-bold text-slate-700">{rr.name}</span>
+            </div>
+            {rr.studentTaken ? (
+             <span className="font-bold text-emerald-700">✅ 충족됨 ({rr.studentTaken.subject})</span>
+            ) : (
+             <span className="text-[11px] text-slate-500">
+              미선택 {rr.schoolSlots.length > 0 ? "(본교 개설)" : "(본교 미개설 · 공동교육과정 권장)"}
+             </span>
+            )}
+           </div>
+          ))}
+         </div>
+        </div>
+
+        {/* 누적 상담일지 저장 또는 상담 결과 복사 버튼 */}
+        <div className="pt-2 border-t border-line flex flex-wrap gap-2">
+         {isHomeroomTeacher && (
+          <Button
+           primary
+           className="flex-1"
+           onClick={() => {
+            const targetStuName = effectiveMode === "simulator"
+             ? (simCustomStuName.trim() || (selectedStudent ? `${selectedStudent.number}번 ${selectedStudent.name}` : "상담학생"))
+             : (selectedStudent ? `${selectedStudent.number}번 ${selectedStudent.name}` : "상담학생");
+            const fulfilledCore = coreResults.filter(c => c.studentTaken).map(c => c.name);
+            const missingCore = coreResults.filter(c => !c.studentTaken).map(c => `${c.name}${c.schoolSlots.length?`(${c.schoolSlots.join("/")}타임)`:""}`);
+            const fulfilledRec = recResults.filter(r => r.studentTaken).map(r => r.name);
+            const summaryBody = `[고교학점제 과목 설계 상담 — 희망 계열: ${activeTrack.title}]\n• 설계·신청 과목: ${activeChosenList.map(c=>`${c.slot}:${c.subject}`).join(", ") || "미등록"}\n• 충족한 핵심권장과목: ${fulfilledCore.join(", ") || "없음"}\n• 보완 필요한 핵심권장과목: ${missingCore.join(", ") || "모두 충족함"}\n• 충족한 일반권장과목: ${fulfilledRec.join(", ") || "없음"}`;
+            const followUpText = missingCore.length > 0 ? `미선택 핵심권장과목(${missingCore.join(", ")}) 본교 수강 또는 공동교육과정·독서 세특 연계 지도` : "핵심 권장과목 이수 설계 양호, 심화 탐구 독서·세특 연계 지도";
+
+            const newNote = {
+             id: uid(),
+             student: targetStuName,
+             target: "학생",
+             category: "진로·학업",
+             date: day(),
+             time: nowTimeStr(),
+             title: `[과목설계] ${activeTrack.group} 계열 선택과목 맞춤 설계 상담`,
+             body: summaryBody,
+             followUp: followUpText,
+             updatedAt: new Date().toISOString()
+            };
+            update(d => ({ ...d, notes: [...(d.notes || []), newNote] }));
+            notify(`[${targetStuName}] 과목 설계 결과를 누적 상담일지에 저장했습니다!`);
+           }}
+          >
+           💬 이 설계·진단 결과를 누적 상담일지에 바로 저장
+          </Button>
+         )}
+         <Button
+          onClick={() => {
+           const targetStuName = effectiveMode === "simulator" ? (simCustomStuName.trim() || "학생") : (selectedStudent ? `${selectedStudent.dept} ${selectedStudent.name}` : "학생");
+           const fulfilledCore = coreResults.filter(c => c.studentTaken).map(c => c.name);
+           const missingCore = coreResults.filter(c => !c.studentTaken).map(c => `${c.name}${c.schoolSlots.length?`(본교 ${c.schoolSlots.join("·")}타임 개설)`:"(공동교육과정 권장)"}`);
+           const reportText = `[${targetStuName} · ${activeTrack.title} 과목 설계 결과]\n1. 선택·신청 과목: ${activeChosenList.map(c=>`[${c.slot}] ${c.subject}`).join(", ") || "없음"}\n2. 충족한 핵심권장과목: ${fulfilledCore.join(", ") || "없음"}\n3. 추가 권장 핵심과목: ${missingCore.join(", ") || "모두 충족"}\n4. 진로 상담 팁: ${activeTrack.tip}`;
+           copy(reportText).then(() => notify("설계·진단 리포트를 클립보드에 복사했습니다! 학생·학부모 안내나 상담 기록에 붙여넣으세요."));
+          }}
+         >
+          <Copy className="h-4 w-4"/>결과 텍스트 복사
+         </Button>
+        </div>
+       </div>
+      </section>
+     </div>
+    </div>;
+   })()}
 
 {page==="출결·제출물 관리"&&<>
      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -9386,6 +10825,186 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
        )}
       </section>
 
+      {/* 1-B. 동일교과 1순위 자동 추천 · 실시간 공강교사 & 교사 위치 검색기 */}
+      {(()=>{
+       const masterTeachers = data.schoolMasterData?.teachers || {};
+       const teacherNames = Object.keys(masterTeachers).sort((a,b)=>a.localeCompare(b,"ko"));
+       const detectSubjGroup = (subjText) => {
+        const s = String(subjText || "");
+        if(/국어|문학|독서|화법|작문|언어|매체/.test(s)) return "국어과";
+        if(/수학|미적분|기하|확률|통계|대수/.test(s)) return "수학과";
+        if(/영어|영미|영문/.test(s)) return "영어과";
+        if(/사회|윤리|역사|한국사|지리|경제|정치|법|문화|세계사|동아시아|사상/.test(s)) return "사회·윤리·역사과";
+        if(/과학|물리|화학|생명|지구|과탐/.test(s)) return "과학과";
+        if(/체육|운동|스포츠|음악|미술|예술/.test(s)) return "예체능과";
+        if(/일본어|중국어|한문|정보|기술|가정|진로|보건/.test(s)) return "제2외국어·기술·교양과";
+        return "기타교과";
+       };
+
+       const getTeacherPrimaryGroup = (tName) => {
+        const slots = masterTeachers[tName] || [];
+        const counts = {};
+        const subjSet = new Set();
+        slots.forEach(sl => {
+         const cleanS = String(sl.subject || "").replace(/[A-N]0?$/i,"").replace(/\(원\)/g,"").trim();
+         if(!cleanS || /^(자율|진로|동아리|봉사)/.test(cleanS)) return;
+         subjSet.add(cleanS);
+         const grp = detectSubjGroup(cleanS);
+         counts[grp] = (counts[grp] || 0) + 1;
+        });
+        const topGrp = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0]?.[0] || "기타교과";
+        return { group: topGrp, subjects: Array.from(subjSet) };
+       };
+
+       const myInfo = getTeacherPrimaryGroup(myName);
+       const targetGroup = freeSubjFilter === "자동(내 교과)" ? myInfo.group : freeSubjFilter;
+
+       const freeTeachersList = teacherNames
+        .filter(tName => tName !== myName)
+        .map(tName => {
+         const slots = masterTeachers[tName] || [];
+         const busyNow = slots.find(s => s.day === freeDay && Number(s.period) === Number(freePeriod));
+         const daySlots = slots.filter(s => s.day === freeDay);
+         const info = getTeacherPrimaryGroup(tName);
+         const sameExactSubj = info.subjects.some(sb => myInfo.subjects.includes(sb));
+         const sameGroup = info.group === targetGroup && targetGroup !== "기타교과";
+         return {
+          name: tName,
+          busyNow,
+          dayCount: daySlots.length,
+          daySlots,
+          group: info.group,
+          subjectsText: info.subjects.slice(0,2).join("·") || "교과미상",
+          sameExactSubj,
+          sameGroup
+         };
+        });
+
+       const tier1SameGroupFree = freeTeachersList
+        .filter(t => !t.busyNow && (t.sameExactSubj || t.sameGroup))
+        .sort((a,b) => Number(b.sameExactSubj) - Number(a.sameExactSubj) || a.dayCount - b.dayCount);
+
+       const tier2OtherFree = freeTeachersList
+        .filter(t => !t.busyNow && !t.sameExactSubj && !t.sameGroup)
+        .sort((a,b) => a.dayCount - b.dayCount);
+
+       const searchedTeachers = teacherSearchQuery.trim()
+        ? freeTeachersList.filter(t => t.name.includes(teacherSearchQuery.trim()) || t.subjectsText.includes(teacherSearchQuery.trim()))
+        : [];
+
+       const pickTeacherForForm = (tName) => {
+        const toInput = document.getElementById("sw-to-t");
+        if(toInput){ toInput.value = tName; toInput.focus(); }
+        const pInput = document.getElementById("sw-from-period");
+        if(pInput) pInput.value = String(freePeriod);
+        const dInput = document.getElementById("sw-from-day");
+        if(dInput) dInput.value = freeDay;
+        notify(`[${tName} 선생님]을 아래 보강·교체 요청 대상 교사 칸에 자동 입력했습니다!`);
+       };
+
+       return teacherNames.length > 0 ? (
+        <section className={`${PANEL} p-5 border-2 border-[#dcd3ee] bg-gradient-to-b from-[#faf8fe] to-white space-y-4`}>
+         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
+          <div>
+           <Tag>동일 과목 · 동일 교과군 1순위 자동 매칭</Tag>
+           <h3 className="mt-1.5 text-base font-bold text-ink">🔍 실시간 공강교사 추천 & 선생님 현재 교실 위치 검색기</h3>
+           <p className="mt-0.5 text-xs text-slate-600">보강이나 수업 교체가 필요한 요일·교시를 선택하면, <strong>나와 같은 과목·같은 교과군 공강 선생님</strong>을 1순위로 찾아줍니다. (클릭 시 아래 신청서에 자동 입력)</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+           <select className={INPUT+" !w-[95px] !py-1.5 font-bold text-brand"} value={freeDay} onChange={e=>setFreeDay(e.target.value)}>
+            {["월","화","수","목","금"].map(d=><option key={d} value={d}>{d}요일</option>)}
+           </select>
+           <select className={INPUT+" !w-[100px] !py-1.5 font-bold text-brand"} value={freePeriod} onChange={e=>setFreePeriod(Number(e.target.value))}>
+            {[1,2,3,4,5,6,7].map(p=><option key={p} value={p}>{p}교시</option>)}
+           </select>
+           <select className={INPUT+" !w-[175px] !py-1.5 text-xs font-semibold"} value={freeSubjFilter} onChange={e=>setFreeSubjFilter(e.target.value)}>
+            <option value="자동(내 교과)">1순위: 내 교과({myInfo.group})</option>
+            {["국어과","수학과","영어과","사회·윤리·역사과","과학과","예체능과","제2외국어·기술·교양과"].map(g=><option key={g} value={g}>1순위: {g}</option>)}
+           </select>
+          </div>
+         </div>
+
+         {/* 1순위: 동일 과목 / 동일 교과군 공강 선생님 */}
+         <div className="rounded-xl border-2 border-brand bg-white p-3.5 space-y-2.5">
+          <div className="flex items-center justify-between">
+           <span className="text-xs font-extrabold text-brand">🥇 1순위 추천: [{targetGroup}] 동일 교과 공강 선생님 ({freeDay}요일 {freePeriod}교시 · {tier1SameGroupFree.length}명)</span>
+           <span className="text-[11px] text-slate-500">당일 수업 시수가 적은 순으로 정렬됨</span>
+          </div>
+          {tier1SameGroupFree.length > 0 ? (
+           <div className="flex flex-wrap gap-2">
+            {tier1SameGroupFree.map(t => (
+             <button
+              type="button"
+              key={t.name}
+              onClick={() => pickTeacherForForm(t.name)}
+              className="group flex items-center gap-2 rounded-xl border-2 border-[#dcd3ee] bg-[#faf8fe] px-3 py-2 text-left text-xs transition-all hover:border-brand hover:bg-brand hover:text-white"
+             >
+              <div>
+               <div className="font-extrabold">
+                {t.sameExactSubj && <span className="mr-1 rounded bg-amber-300 px-1.5 py-0.2 text-[10px] font-black text-slate-900">동일과목</span>}
+                {t.name} 선생님
+               </div>
+               <div className="text-[10.5px] opacity-80">{t.subjectsText} · {freeDay}요일 수업 {t.dayCount}시간</div>
+              </div>
+              <span className="rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-bold text-brand">선택 →</span>
+             </button>
+            ))}
+           </div>
+          ) : (
+           <p className="text-xs text-slate-400">{freeDay}요일 {freePeriod}교시에는 [{targetGroup}] 소속 중 공강인 선생님이 없습니다. 아래 타 교과 공강 선생님을 확인하세요.</p>
+          )}
+         </div>
+
+         {/* 2순위: 타 교과 공강 선생님 & 특정 교사 위치 검색 */}
+         <div className="grid gap-3 md:grid-cols-2">
+          <details className="rounded-xl border border-line bg-white p-3">
+           <summary className="cursor-pointer text-xs font-bold text-slate-700">
+            🥈 2순위: 타 교과 공강 선생님 보기 ({tier2OtherFree.length}명)
+           </summary>
+           <div className="mt-2.5 flex max-h-36 flex-wrap gap-1.5 overflow-y-auto pt-1">
+            {tier2OtherFree.map(t => (
+             <button
+              type="button"
+              key={t.name}
+              onClick={() => pickTeacherForForm(t.name)}
+              className="rounded-lg border border-line bg-paper px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:border-brand hover:bg-[#eee9fa] hover:text-brand"
+             >
+              <strong>{t.name}</strong> ({t.subjectsText} · 당일{t.dayCount}시간)
+             </button>
+            ))}
+           </div>
+          </details>
+
+          <div className="rounded-xl border border-line bg-white p-3 space-y-2">
+           <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-ink shrink-0">📍 선생님 현재 수업/위치 검색:</span>
+            <input
+             type="text"
+             value={teacherSearchQuery}
+             onChange={e => setTeacherSearchQuery(e.target.value)}
+             placeholder="선생님 성함 또는 과목 입력"
+             className="w-full rounded-lg border border-line px-2.5 py-1 text-xs"
+            />
+           </div>
+           {searchedTeachers.length > 0 && (
+            <div className="max-h-28 overflow-y-auto space-y-1 text-[11px]">
+             {searchedTeachers.map(t => (
+              <div key={t.name} className="flex items-center justify-between rounded bg-paper px-2.5 py-1.5">
+               <span>
+                <strong className="text-brand">{t.name}</strong> ({t.subjectsText}) — {freeDay}요일 {freePeriod}교시:{" "}
+                {t.busyNow ? <strong className="text-red-600">{t.busyNow.subject} ({t.busyNow.room||"교실"}) 수업 중</strong> : <strong className="text-emerald-700">✓ 공강 (비어 있음)</strong>}
+               </span>
+               <button type="button" onClick={()=>pickTeacherForForm(t.name)} className="text-brand font-bold underline ml-2 shrink-0">선택</button>
+              </div>
+             ))}
+            </div>
+           )}
+          </div>
+         </div>
+        </section>
+       ) : null;
+      })()}
+
       {/* 2. 새 수업 교체 / 동교과 보강 신청 폼 */}
       <section className={`${PANEL} p-5 space-y-5`}>
        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
@@ -10027,60 +11646,303 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
     )}
 
     {classTab==="월별 출결·AI 분석" && (()=>{
-const nonHrList = (data.subjectClasses||[]).filter(c=>c.id!=="homeroom");
-      const effectiveClassId = (!data.profile.homeroom && activeClassId==="homeroom") ? (nonHrList[0]?.id || "") : activeClassId;
-      const currentClassObj = (data.profile.homeroom && effectiveClassId==="homeroom") ? {id:"homeroom",name:`우리반 (${className})`,students:data.students} : (nonHrList.find(c=>c.id===effectiveClassId) || nonHrList[0] || {id:"empty",name:"교과 수업반 미선택",students:[]});
-      const isHomeroom = data.profile.homeroom && currentClassObj.id==="homeroom";
-      const targetStudents = isHomeroom ? data.students : (currentClassObj.students||[]);
-     const monthDates = isHomeroom
-      ? Object.keys(data.attendance).filter(d=>d.startsWith(attMonth)).sort()
-      : Object.keys(data.classAttendance?.[activeClassId]||{}).filter(k=>k.startsWith(attMonth)).sort();
+     const nonHrList = (data.subjectClasses||[]).filter(c=>c.id!=="homeroom");
+     const effectiveClassId = (!data.profile.homeroom && activeClassId==="homeroom") ? (nonHrList[0]?.id || "") : activeClassId;
+     const currentClassObj = (data.profile.homeroom && effectiveClassId==="homeroom") ? {id:"homeroom",name:`우리반 (${className})`,students:data.students} : (nonHrList.find(c=>c.id===effectiveClassId) || nonHrList[0] || {id:"empty",name:"교과 수업반 미선택",students:[]});
+     const isHomeroom = data.profile.homeroom && currentClassObj.id==="homeroom";
+     const targetStudents = isHomeroom ? data.students : (currentClassObj.students||[]);
+
+     const rawMonthKeys = isHomeroom
+      ? Object.keys(data.attendance || {}).filter(d => d.startsWith(attMonth)).sort()
+      : Object.keys(data.classAttendance?.[effectiveClassId] || {}).filter(k => k.startsWith(attMonth)).sort();
+     const defaultKey = isHomeroom ? (attDate.startsWith(attMonth) ? attDate : `${attMonth}-01`) : `${attDate.startsWith(attMonth) ? attDate : `${attMonth}-01`}_${activePeriod}교시`;
+     const monthDates = rawMonthKeys.length > 0 ? rawMonthKeys : [defaultKey];
+
+     const dayNames = ["일","월","화","수","목","금","토"];
+     const formatColHeader = (dKey) => {
+      if(isHomeroom){
+       const dt = validDate(dKey) ? new Date(dKey + "T12:00:00Z") : null;
+       const dow = dt ? dayNames[dt.getUTCDay()] : "";
+       return { short: `${Number(dKey.slice(5,7))}/${Number(dKey.slice(8,10))}`, sub: dow ? `(${dow})` : "", dateOnly: dKey, periodNum: activePeriod };
+      }
+      const [dPart, pPart] = dKey.split("_");
+      const pNum = Number(String(pPart || "1").replace(/\D/g,"")) || 1;
+      return { short: `${Number(dPart.slice(5,7))}/${Number(dPart.slice(8,10))}`, sub: `${pNum}교시`, dateOnly: dPart, periodNum: pNum };
+     };
+
+     const getCellDetail = (dKey, stuId) => {
+      const scopeKey = isHomeroom ? `hr_${dKey}` : `${effectiveClassId}_${dKey}`;
+      return data.attendanceProofs?.__details?.[scopeKey]?.[stuId] || null;
+     };
+
+     const getCellStatus = (dKey, stuId) => {
+      return isHomeroom
+       ? (data.attendance?.[dKey]?.[stuId] || "미기록")
+       : (data.classAttendance?.[effectiveClassId]?.[dKey]?.[stuId] || "미기록");
+     };
+
+     const setCellStatusDirect = (dKey, stuId, nextStatus) => {
+      if(isHomeroom){
+       update(d => ({
+        ...d,
+        attendance: {
+         ...(d.attendance || {}),
+         [dKey]: { ...(d.attendance?.[dKey] || {}), [stuId]: nextStatus }
+        }
+       }));
+      } else {
+       update(d => ({
+        ...d,
+        classAttendance: {
+         ...(d.classAttendance || {}),
+         [effectiveClassId]: {
+          ...(d.classAttendance?.[effectiveClassId] || {}),
+          [dKey]: { ...(d.classAttendance?.[effectiveClassId]?.[dKey] || {}), [stuId]: nextStatus }
+         }
+        }
+       }));
+      }
+     };
 
      const stats = targetStudents.map(st => {
-      const counts = {출석:0, 지각:0, 조퇴:0, 결석:0, 인정결석:0};
+      const counts = {출석:0, 지각:0, 조퇴:0, 결석:0, 인정결석:0, 병결:0, 미인정:0};
       const details = [];
-      for(const dKey of monthDates){
-       const val = isHomeroom ? data.attendance[dKey]?.[st.id] : data.classAttendance?.[activeClassId]?.[dKey]?.[st.id];
+      for(const dKey of rawMonthKeys){
+       const val = getCellStatus(dKey, st.id);
+       const det = getCellDetail(dKey, st.id);
        if(val && val !== "미기록"){
         counts[val] = (counts[val]||0)+1;
-        if(val !== "출석") details.push(`${dKey.slice(8)}(${val})`);
+        if(val !== "출석"){
+         const subTag = det?.subType ? `·${det.subType}` : (val === "인정결석" ? "·인정" : "");
+         if(det?.subType === "병결") counts.병결 += 1;
+         if(det?.subType === "미인정") counts.미인정 += 1;
+         const memoTag = det?.memo ? `:${det.memo}` : "";
+         const colInfo = formatColHeader(dKey);
+         details.push(`${colInfo.short}${!isHomeroom?`(${colInfo.sub})`:""}[${val}${subTag}${memoTag}]`);
+        }
        }
       }
       return {...st, counts, details};
      });
 
+     const printDateGridHTML = () => {
+      const colHeadersHtml = monthDates.map(dKey => {
+       const c = formatColHeader(dKey);
+       return `<th style="text-align:center;font-size:8.5pt;padding:4px 2px">${esc(c.short)}<br><span style="font-size:7.5pt;font-weight:400">${esc(c.sub)}</span></th>`;
+      }).join("");
+
+      const bodyRowsHtml = stats.map(s => {
+       const cellsHtml = monthDates.map(dKey => {
+        const val = getCellStatus(dKey, s.id);
+        const det = getCellDetail(dKey, s.id);
+        const shortSym = val==="출석"?"○":val==="지각"?"지":val==="조퇴"?"조":val==="결석"?"결":val==="인정결석"?"인":"-";
+        const subSym = (val!=="출석" && val!=="미기록" && det?.subType) ? `<br><span style="font-size:7pt">(${esc(det.subType.slice(0,1))})</span>` : "";
+        const color = val==="출석"?"#047857":val==="결석"?"#dc2626":val==="미기록"?"#cbd5e1":"#d97706";
+        return `<td style="text-align:center;font-weight:700;color:${color};padding:4px 2px;font-size:8.5pt">${shortSym}${subSym}</td>`;
+       }).join("");
+       return `<tr>
+        <td style="text-align:center;width:36px">${s.number}</td>
+        <td style="font-weight:700;width:72px">${esc(s.name)}</td>
+        ${cellsHtml}
+        <td style="text-align:center;width:90px;font-size:8pt">출${s.counts.출석}/지${s.counts.지각}/조${s.counts.조퇴}/결${s.counts.결석+s.counts.인정결석}</td>
+        <td style="font-size:8pt">${esc(s.details.join(", "))}</td>
+       </tr>`;
+      }).join("");
+
+      return printDocument(`${currentClassObj.name}_${attMonth}_날짜별출석부`, `<section class="doc">
+       <div>
+        <p class="small" style="font-weight:700">${esc(data.profile.school)} · ${esc(currentClassObj.name)} 날짜별 출결 현황표</p>
+        <h1>${esc(currentClassObj.name)} 날짜별 출석부 (${esc(attMonth)})</h1>
+        <div class="meta">기호 안내: ○(출석), 지(지각), 조(조퇴), 결(결석), 인(인정결석) / 괄호 안: (병)=병결, (인)=인정, (미)=미인정</div>
+        <table style="margin-top:12px">
+         <thead><tr><th style="width:36px">번호</th><th style="width:72px">성명</th>${colHeadersHtml}<th style="width:90px">월간집계</th><th style="width:140px">사유·메모 기록</th></tr></thead>
+         <tbody>${bodyRowsHtml}</tbody>
+        </table>
+       </div>
+      </section>`);
+     };
+
+     const downloadDateGridCSV = () => {
+      const colLabels = monthDates.map(dKey => {
+       const c = formatColHeader(dKey);
+       return `${c.short}${c.sub}`;
+      });
+      const headers = ["번호","소속","이름", ...colLabels, "출석합계","지각합계","조퇴합계","결석합계","인정결석","병결건수","특이사항 및 사유메모"];
+      const rows = stats.map(s => {
+       const dateCells = monthDates.map(dKey => {
+        const val = getCellStatus(dKey, s.id);
+        const det = getCellDetail(dKey, s.id);
+        if(val === "미기록") return "";
+        if(val === "출석") return "○";
+        return `${val}${det?.subType?`(${det.subType})`:""}${det?.memo?`:${det.memo}`:""}`;
+       });
+       return [s.number, s.dept||className, s.name, ...dateCells, s.counts.출석, s.counts.지각, s.counts.조퇴, s.counts.결석, s.counts.인정결석, s.counts.병결, s.details.join(" / ")];
+      });
+      csv(`날짜별출석부_${currentClassObj.name}_${attMonth}.csv`, headers, rows);
+     };
+
      const analyzeAttendance = () => {
-      run("월별 출결 특이사항 AI 분석 중...", async(signal, current)=>{
-       const summaryData = stats.map(s=>({번호:s.number, 소속:s.dept||className, 이름:s.name, ...s.counts, 특이일자:s.details.join(", "), 비고:s.memo||""}));
+      run("월별 출결·병결·사유메모 특이사항 AI 분석 중...", async(signal, current)=>{
+       const summaryData = stats.map(s=>({번호:s.number, 소속:s.dept||className, 이름:s.name, ...s.counts, 날짜별사유메모:s.details.join(", "), 비고:s.memo||""}));
        const {value} = await gemini(`당신은 한국 학교의 꼼꼼한 교사 보조 AI입니다.
 조회 수업반: ${currentClassObj.name}
-조회 월: ${attMonth} (기록된 수업 횟수: ${monthDates.length}회)
-학생별 월간 출결 집계: ${JSON.stringify(summaryData)}
+조회 월: ${attMonth} (기록된 수업 횟수: ${rawMonthKeys.length}회)
+학생별 월간 출결 및 병결/메모 집계: ${JSON.stringify(summaryData)}
 다음 항목을 깔끔하고 읽기 쉽게 분석해 주세요:
 1. 월간 전체 출결 요약 및 전반적 경향
-2. 지각·조퇴·결석이 잦거나 특정 요일/교시에 집중된 관심 필요 학생 및 특이사항 정리
+2. 지각·조퇴·결석(특히 병결 반복이나 미인정 사유)이 잦거나 특정 요일/교시에 집중된 관심 필요 학생 및 메모 요약
 3. 교사가 학생 면담이나 학부모 연락 시 참고할 따뜻한 생활지도 코멘트 및 나이스(NEIS) 출결 마감 전 점검 포인트`, null, signal);
        if(current()) setAttAnalysis(value);
       });
      };
+
      return <section className={`${PANEL} p-5 space-y-5`}>
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
-       <div>
-        <h2 className="mb-2 text-sm font-semibold">[{currentClassObj.name}] · 월별 출결 누적 현황 및 AI 분석</h2>
-        <input type="month" aria-label="조회할 월" value={attMonth} onChange={e=>setAttMonth(e.target.value)} className={INPUT+" !w-[180px]"}/>
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4">
+       <div className="flex flex-wrap items-center gap-3">
+        <div>
+         <h2 className="text-base font-extrabold text-ink">🗓️ [{currentClassObj.name}] 날짜별 출석부 표 & 월간 통계</h2>
+         <p className="text-xs text-slate-500">담임·교과담임 모두 날짜별 출결 흐름과 병결·사유 메모를 한눈에 확인하고 표에서 바로 수정할 수 있습니다.</p>
+        </div>
+        <input type="month" aria-label="조회할 월" value={attMonth} onChange={e=>setAttMonth(e.target.value)} className={INPUT+" !w-[165px] font-bold text-brand"}/>
        </div>
-       <div className="flex flex-wrap gap-2">
-        <Button primary disabled={!!busy} onClick={analyzeAttendance}><Sparkles className="h-4 w-4"/>AI 월별 출결·특이사항 분석</Button>
-        <Button onClick={()=>csv(`월별출결_${currentClassObj.name}_${attMonth}.csv`,["번호","학반/소속","이름","학생연락처","보호자연락처","출석","지각","조퇴","결석","인정결석","특이사항일자"],stats.map(s=>[s.number,s.dept||className,s.name,s.phone||"",s.parentPhone||"",s.counts.출석,s.counts.지각,s.counts.조퇴,s.counts.결석,s.counts.인정결석,s.details.join(" / ")]))}>월별 통계 CSV</Button>
+
+       <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-xl border border-[#dcd3ee] bg-paper p-1">
+         <button
+          type="button"
+          onClick={()=>setAttViewMode("grid")}
+          className={`rounded-lg px-3 py-1.5 text-xs font-extrabold transition-all ${attViewMode==="grid"?"bg-brand text-white shadow-sm":"text-slate-600 hover:bg-white"}`}
+         >
+          🗓️ 날짜별 바둑판 출석부 표
+         </button>
+         <button
+          type="button"
+          onClick={()=>setAttViewMode("summary")}
+          className={`rounded-lg px-3 py-1.5 text-xs font-extrabold transition-all ${attViewMode==="summary"?"bg-brand text-white shadow-sm":"text-slate-600 hover:bg-white"}`}
+         >
+          📊 월간 합계 · AI 분석
+         </button>
+        </div>
+        <Button onClick={downloadDateGridCSV}><Download className="h-4 w-4"/>날짜별 표 CSV</Button>
+        <Button primary onClick={()=>print(printDateGridHTML())}><Monitor className="h-4 w-4"/>출석부 인쇄 / PDF</Button>
        </div>
       </div>
-      {attAnalysis&&<div className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-5"><div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-bold text-brand">✨ AI 월별 출결 특이사항 분석 리포트 ({currentClassObj.name} · {attMonth})</h3><Button onClick={()=>copy(attAnalysis).then(()=>notify("분석 내용을 복사했습니다."))}>복사</Button></div><p className="prose-text text-sm text-slate-700">{attAnalysis}</p></div>}
-      <div className="overflow-x-auto">
-       <table className="w-full border-collapse text-left text-xs">
-        <thead><tr className="border-b border-line bg-paper text-slate-600"><th className="p-3">번호·이름</th><th className="p-3">소속·연락처(선택)</th><th className="p-3 text-center">출석</th><th className="p-3 text-center">지각</th><th className="p-3 text-center">조퇴</th><th className="p-3 text-center">결석</th><th className="p-3 text-center">인정결석</th><th className="p-3">월중 특이사항 일자</th></tr></thead>
-        <tbody>{stats.map(s=><tr key={s.id} className="border-b border-line last:border-0 hover:bg-paper/50"><td className="p-3 font-medium"><span className="mr-2 text-slate-400">{s.number}</span>{s.name}</td><td className="p-3 text-slate-500">{[s.dept,s.phone,s.parentPhone].filter(Boolean).join(" / ")||"-"}</td><td className="p-3 text-center">{s.counts.출석}</td><td className={`p-3 text-center ${s.counts.지각?"font-bold text-amber-600":""}`}>{s.counts.지각}</td><td className={`p-3 text-center ${s.counts.조퇴?"font-bold text-amber-600":""}`}>{s.counts.조퇴}</td><td className={`p-3 text-center ${s.counts.결석?"font-bold text-red-600":""}`}>{s.counts.결석}</td><td className="p-3 text-center">{s.counts.인정결석}</td><td className="p-3 text-slate-600">{s.details.length?s.details.join(", "):"특이사항 없음"}</td></tr>)}</tbody>
-       </table>
-      </div>
+
+      {attViewMode === "grid" ? (
+       <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#faf8fe] border border-[#dcd3ee] px-3.5 py-2.5 text-xs">
+         <div className="flex flex-wrap items-center gap-2">
+          <span className="font-bold text-brand">💡 표 사용 팁:</span>
+          <span className="text-slate-600">각 날짜 칸을 클릭하면 출결을 바로 바꿀 수 있고, 날짜 머리글을 누르면 해당일 상세 출결(병결·메모) 화면으로 이동합니다.</span>
+         </div>
+         <div className="flex items-center gap-2 text-[11px] font-bold">
+          <span className="text-emerald-700">○ 출석</span>
+          <span className="text-amber-600">지(지각) · 조(조퇴)</span>
+          <span className="text-red-600">결(결석)</span>
+          <span className="text-brand">인(인정)</span>
+         </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-line">
+         <table className="w-full border-collapse text-xs">
+          <thead>
+           <tr className="border-b border-line bg-[#f4f1fa] text-[#493b7a]">
+            <th className="sticky left-0 z-10 bg-[#f4f1fa] p-2.5 text-center w-[110px] border-r border-[#dcd3ee]">번호 · 이름</th>
+            {monthDates.map(dKey => {
+             const c = formatColHeader(dKey);
+             return (
+              <th key={dKey} className="p-2 text-center min-w-[64px] border-r border-line">
+               <button
+                type="button"
+                onClick={() => {
+                 setAttDate(c.dateOnly);
+                 if(!isHomeroom && c.periodNum) setActivePeriod(c.periodNum);
+                 setClassTab("출결");
+                 notify(`${c.dateOnly} 출결 화면으로 이동했습니다.`);
+                }}
+                className="hover:underline text-center leading-tight"
+                title="클릭 시 해당 날짜 출결 화면으로 이동"
+               >
+                <div className="font-extrabold text-brand">{c.short}</div>
+                <div className="text-[10px] font-semibold text-slate-500">{c.sub}</div>
+               </button>
+              </th>
+             );
+            })}
+            <th className="p-2.5 text-center min-w-[115px] bg-[#faf8fe]">월간 집계<br/><span className="text-[10px] font-normal text-slate-500">(출/지/조/결/병)</span></th>
+            <th className="p-2.5 text-left min-w-[200px] bg-[#faf8fe]">병결 · 사유 메모 기록</th>
+           </tr>
+          </thead>
+          <tbody>
+           {stats.map(s => (
+            <tr key={s.id} className="border-b border-line last:border-0 hover:bg-paper/40">
+             <td className="sticky left-0 z-10 bg-white p-2.5 font-bold text-ink border-r border-[#dcd3ee] whitespace-nowrap">
+              <span className="mr-1.5 text-slate-400 font-semibold">{s.number}</span>
+              {s.dept && !isHomeroom && <span className="mr-1 rounded bg-[#eee9fa] px-1 py-0.5 text-[9px] text-brand">{s.dept}</span>}
+              {s.name}
+             </td>
+             {monthDates.map(dKey => {
+              const val = getCellStatus(dKey, s.id);
+              const det = getCellDetail(dKey, s.id);
+              const colorCls = val==="출석"
+               ? "text-emerald-700 font-extrabold bg-emerald-50/40"
+               : val==="결석"
+               ? "text-red-600 font-extrabold bg-red-50/70"
+               : val==="인정결석"
+               ? "text-brand font-extrabold bg-[#f0ecfa]"
+               : val==="미기록"
+               ? "text-slate-300"
+               : "text-amber-700 font-extrabold bg-amber-50/70";
+              return (
+               <td key={dKey} className={`p-1 text-center border-r border-line ${colorCls}`} title={det?.memo ? `[${det.subType||""}] ${det.memo}` : val}>
+                <select
+                 aria-label={`${s.name} ${dKey} 출결`}
+                 value={val}
+                 onChange={e => setCellStatusDirect(dKey, s.id, e.target.value)}
+                 className="w-full cursor-pointer bg-transparent text-center text-xs font-extrabold focus:outline-none"
+                >
+                 <option value="미기록">-</option>
+                 <option value="출석">○</option>
+                 <option value="지각">지{det?.subType?`(${det.subType.slice(0,1)})`:""}</option>
+                 <option value="조퇴">조{det?.subType?`(${det.subType.slice(0,1)})`:""}</option>
+                 <option value="결석">결{det?.subType?`(${det.subType.slice(0,1)})`:""}</option>
+                 <option value="인정결석">인</option>
+                </select>
+                {det?.memo && (
+                 <div className="truncate max-w-[60px] mx-auto text-[9px] font-medium text-slate-500" title={det.memo}>
+                  📝{det.memo}
+                 </div>
+                )}
+               </td>
+              );
+             })}
+             <td className="p-2.5 text-center font-semibold whitespace-nowrap bg-[#faf8fe]/50">
+              <span className="text-emerald-700">출{s.counts.출석}</span> · <span className={s.counts.지각?"text-amber-600 font-bold":"text-slate-400"}>지{s.counts.지각}</span> · <span className={s.counts.조퇴?"text-amber-600 font-bold":"text-slate-400"}>조{s.counts.조퇴}</span> · <span className={(s.counts.결석+s.counts.인정결석)?"text-red-600 font-bold":"text-slate-400"}>결{s.counts.결석+s.counts.인정결석}</span>
+              {s.counts.병결 > 0 && <span className="ml-1 rounded bg-blue-50 px-1 py-0.5 text-[10px] font-bold text-blue-700">병{s.counts.병결}</span>}
+             </td>
+             <td className="p-2.5 text-slate-600 text-[11px]">
+              {s.details.length ? s.details.join(", ") : <span className="text-slate-300">-</span>}
+             </td>
+            </tr>
+           ))}
+          </tbody>
+         </table>
+        </div>
+       </div>
+      ) : (
+       <div className="space-y-4">
+        <div className="flex justify-end">
+         <Button primary disabled={!!busy} onClick={analyzeAttendance}><Sparkles className="h-4 w-4"/>AI 월별 출결·병결·특이사항 분석 리포트 생성</Button>
+        </div>
+        {attAnalysis&&<div className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-5"><div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-bold text-brand">✨ AI 월별 출결 특이사항 분석 리포트 ({currentClassObj.name} · {attMonth})</h3><Button onClick={()=>copy(attAnalysis).then(()=>notify("분석 내용을 복사했습니다."))}>복사</Button></div><p className="prose-text text-sm text-slate-700">{attAnalysis}</p></div>}
+        <div className="overflow-x-auto rounded-xl border border-line">
+         <table className="w-full border-collapse text-left text-xs">
+          <thead><tr className="border-b border-line bg-paper text-slate-600"><th className="p-3">번호·이름</th><th className="p-3">소속·연락처</th><th className="p-3 text-center">출석</th><th className="p-3 text-center">지각</th><th className="p-3 text-center">조퇴</th><th className="p-3 text-center">결석</th><th className="p-3 text-center">인정결석</th><th className="p-3 text-center text-blue-700">🏥병결(내수)</th><th className="p-3">월중 특이사항 일자 · 사유 메모</th></tr></thead>
+          <tbody>{stats.map(s=><tr key={s.id} className="border-b border-line last:border-0 hover:bg-paper/50"><td className="p-3 font-medium"><span className="mr-2 text-slate-400">{s.number}</span>{s.name}</td><td className="p-3 text-slate-500">{[s.dept,s.phone,s.parentPhone].filter(Boolean).join(" / ")||"-"}</td><td className="p-3 text-center">{s.counts.출석}</td><td className={`p-3 text-center ${s.counts.지각?"font-bold text-amber-600":""}`}>{s.counts.지각}</td><td className={`p-3 text-center ${s.counts.조퇴?"font-bold text-amber-600":""}`}>{s.counts.조퇴}</td><td className={`p-3 text-center ${s.counts.결석?"font-bold text-red-600":""}`}>{s.counts.결석}</td><td className="p-3 text-center">{s.counts.인정결석}</td><td className={`p-3 text-center ${s.counts.병결?"font-bold text-blue-700":""}`}>{s.counts.병결}</td><td className="p-3 text-slate-600">{s.details.length?s.details.join(", "):"특이사항 없음"}</td></tr>)}</tbody>
+         </table>
+        </div>
+       </div>
+      )}
      </section>;
     })()}
 
@@ -11026,7 +12888,520 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
       })()}
      </div>;
     })()}
-   {page==="온라인 등록부"&&<><div className="mb-5 flex justify-end"><Button primary onClick={()=>setModal({type:"record",kind:"training"})}><Plus className="h-4 w-4"/>새 연수 개설</Button></div>{data.trainings.length?<section className={`${PANEL} p-5 md:p-6`}><Field label="참여할 연수 선택" id="training-select"><select id="training-select" className={INPUT} value={data.trainings.some(t=>t.id===trainingId)?trainingId:data.trainings[0].id} onChange={e=>setTrainingId(e.target.value)}>{data.trainings.map(t=><option key={t.id} value={t.id}>{t.title}</option>)}</select></Field>{(()=>{
+      {page==="대입 진학 상담실"&&(()=>{
+    // 1) 전교과 및 계열별 주요 교과(국영수사 / 국영수과) 이수단위 가중평균 5등급 산출
+    const validRows = (admRows || []).filter(r => Number(r.credit) > 0 && Number(r.grade5) >= 1 && Number(r.grade5) <= 5);
+    const totalCredits = validRows.reduce((acc, r) => acc + (Number(r.credit) || 0), 0);
+    const weightedSum5 = validRows.reduce((acc, r) => acc + (Number(r.credit) || 0) * (Number(r.grade5) || 1), 0);
+    const calculatedG5 = totalCredits > 0 ? Number((weightedSum5 / totalCredits).toFixed(2)) : Number(admDirectG5) || 1.50;
+
+    // 주요 교과별 가중평균(인문: 국·영·수·사 / 자연: 국·영·수·과) 자동 산출
+    const humRows = validRows.filter(r => /국어|문학|독서|화법|언어|영어|영미|수학|미적|기하|확률|사회|역사|한국사|지리|윤리|정치|경제|문화/.test(r.subject));
+    const sciRows = validRows.filter(r => /국어|문학|독서|화법|언어|영어|영미|수학|미적|기하|확률|과학|물리|화학|생명|지구/.test(r.subject));
+    const humG5 = humRows.length > 0 ? Number((humRows.reduce((a,r)=>a+Number(r.credit)*Number(r.grade5),0) / humRows.reduce((a,r)=>a+Number(r.credit),0)).toFixed(2)) : calculatedG5;
+    const sciG5 = sciRows.length > 0 ? Number((sciRows.reduce((a,r)=>a+Number(r.credit)*Number(r.grade5),0) / sciRows.reduce((a,r)=>a+Number(r.credit),0)).toFixed(2)) : calculatedG5;
+
+    const activeConv = convert5To9Grade(calculatedG5);
+    const reverseConv = convert9To5Grade(admDirectG9);
+
+    // 2) 월간 갱신된 서버 데이터 + 내장 전 학과 DB 결합 및 9등급 -> 5등급 자동 치환
+    const baseDb = (Array.isArray(adigaSyncMeta?.remoteRows) && adigaSyncMeta.remoteRows.length > 0)
+     ? adigaSyncMeta.remoteRows
+     : DEFAULT_ADIGA_CUTOFF_DB;
+
+    const allCutoffs = baseDb.map(item => {
+     const c50 = convert9To5Grade(item.cut50_9);
+     const c70 = convert9To5Grade(item.cut70_9);
+     let status = "위험·상향";
+     let badgeCls = "bg-red-100 text-red-700 border-red-300";
+     if(calculatedG5 <= c50.g5){
+      status = "🟢 안정·적정권 (50%컷 이내)";
+      badgeCls = "bg-emerald-100 text-emerald-800 border-emerald-300";
+     } else if(calculatedG5 <= c70.g5){
+      status = "🟡 소신 지원권 (50~70%컷)";
+      badgeCls = "bg-amber-100 text-amber-900 border-amber-300";
+     } else if(calculatedG5 <= Number((c70.g5 + 0.22).toFixed(2))){
+      status = "🟠 도전·상향권 (70%컷 근접)";
+      badgeCls = "bg-orange-100 text-orange-800 border-orange-300";
+     } else {
+      status = "🔴 심층검토 (교과외 전형 권장)";
+     }
+     return { ...item, cut50_5: c50.g5, cut70_5: c70.g5, pct50: c50.pct, pct70: c70.pct, status, badgeCls };
+    });
+
+    // 학과 계열 자동 분류 헬퍼
+    const getDeptCategoryGroup = (deptName) => {
+     const s = String(deptName || "");
+     if(/의예|의학|치의|한의|약학|수의|간호|물리치료|작업치료|임상병리|치위생|응급구조/.test(s)) return "의약학·간호·보건";
+     if(/컴퓨터|소프트웨어|인공지능|AI|반도체|전기|전자|기계|화학공학|화공|신소재|재료|건축|도시|토목|조선|항공|미래자동차|스마트|정보/.test(s)) return "공학·AI·SW·건축";
+     if(/경영|경제|무역|금융|회계|세무|통계|수리/.test(s)) return "상경·경영·경제·통계";
+     if(/교육|사범|교대/.test(s)) return "사범·초등교육";
+     if(/법학|행정|정치|외교|사회|심리|미디어|언론|홍보|경찰|공공인재|국제|국어|영어|사학|철학|인문|어문/.test(s)) return "인문·사회·법행정";
+     return "자연·생활·농생명";
+    };
+
+    const regionUnivs = Array.from(new Set(allCutoffs.filter(x => admRegionFilter === "전체" || x.region === admRegionFilter).map(x => x.univ)));
+
+    const filteredCutoffs = allCutoffs.filter(item => {
+     if(admRegionFilter !== "전체" && item.region !== admRegionFilter) return false;
+     if(admSelectedUniv !== "전체" && item.univ !== admSelectedUniv) return false;
+     if(admDeptGroupFilter !== "전체" && getDeptCategoryGroup(item.dept) !== admDeptGroupFilter) return false;
+     if(admUnivSearch.trim()){
+      const q = admUnivSearch.trim().toLowerCase();
+      return `${item.univ} ${item.dept} ${item.type} ${item.minCsat} ${item.note}`.toLowerCase().includes(q);
+     }
+     return true;
+    });
+
+    // 3) 희망 목표 학과 합격선 역산 시뮬레이터 (남은 학기 목표 등급 + 수능최저 반영)
+    const goalTargetItem = allCutoffs.find(x => x.id === admTargetGoalId) || filteredCutoffs[0] || allCutoffs[0];
+    const remainingCreditsAssume = Math.max(20, 120 - totalCredits);
+    const neededFutureG5 = goalTargetItem
+     ? Number((((goalTargetItem.cut50_5 * (totalCredits + remainingCreditsAssume)) - (calculatedG5 * totalCredits)) / remainingCreditsAssume).toFixed(2))
+     : 1.00;
+
+    const printAdmissionReportHTML = () => {
+     const targetLabel = admStuName.trim() || "상담 학생";
+     const rowsHtml = filteredCutoffs.slice(0, 28).map(c => `
+      <tr>
+       <td style="font-weight:700">${esc(c.univ)}<br><span class="small">${esc(c.dept)} (${esc(c.type)})</span></td>
+       <td style="text-align:center;color:#555">${c.cut50_9.toFixed(2)} / ${c.cut70_9.toFixed(2)}</td>
+       <td style="text-align:center;font-weight:800;color:#6550bb">${c.cut50_5.toFixed(2)} / ${c.cut70_5.toFixed(2)}</td>
+       <td style="text-align:center;font-weight:700">${esc(c.status.replace(/^[🟢🟡🟠🔴]\s*/,""))}</td>
+       <td style="font-size:8.5pt">${esc(c.minCsat)} · ${esc(c.note)}</td>
+      </tr>
+     `).join("");
+     return printDocument(`${targetLabel}_5등급제_대입진학상담_리포트`, `<section class="doc">
+      <div>
+       <p class="small" style="font-weight:700">${esc(data.profile.school)} · 2028 대입 개편(5등급제) 맞춤형 진학 컨설팅 리포트 (${esc(adigaSyncMeta?.lastSyncedMonth || "")} 기준)</p>
+       <h1>5등급제 내신 산출 및 대학어디가(50%·70%컷) 치환 상담표</h1>
+       <div class="meta">
+        대상 학생: <strong>${esc(targetLabel)}</strong> · 상담일: ${esc(dateLabel(day()))}<br>
+        <strong>📊 학생 5등급제 전교과 내신: ${calculatedG5.toFixed(2)}등급</strong> (국영수사: ${humG5.toFixed(2)} / 국영수과: ${sciG5.toFixed(2)} · 상위 약 <strong>${activeConv.pct}%</strong> ↔ 구 9등급 환산 <strong>약 ${activeConv.g9.toFixed(2)}등급</strong>)
+       </div>
+       <h2>1. 과목별 이수단위(학점) 반영 5등급 산출 내역 (총 ${totalCredits}학점)</h2>
+       <table>
+        <thead><tr><th style="width:15%">학기</th><th>과목명</th><th style="width:15%">학점(단위)</th><th style="width:18%">5등급 석차등급</th><th style="width:18%">성취도</th></tr></thead>
+        <tbody>
+         ${validRows.map(r => `<tr><td style="text-align:center">${esc(r.term)}</td><td>${esc(r.subject)}</td><td style="text-align:center">${r.credit}</td><td style="text-align:center;font-weight:700">${r.grade5}등급</td><td style="text-align:center">${esc(r.achievement)}</td></tr>`).join("")}
+        </tbody>
+       </table>
+       <h2>2. 대학어디가(adiga) 50%컷 · 70%컷 5등급제 치환 및 지원 가능성 진단</h2>
+       <table>
+        <thead><tr><th style="width:24%">대학 · 모집단위</th><th style="width:16%">기존 9등급 입결<br>(50% / 70%컷)</th><th style="width:17%">5등급 치환 컷<br>(50% / 70%컷)</th><th style="width:18%">학생 내신 대비 진단</th><th>수능최저 및 상담 유의사항</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+       </table>
+      </div>
+      <p class="small" style="text-align:right;margin-top:20px">상담 교사: ${esc(data.profile.teacher||"")} (확인)</p>
+     </section>`);
+    };
+
+    return <div className="space-y-6">
+     {/* 상단 헤더 배너 (월간 자동 갱신 상태 표시) */}
+     <section className={`${PANEL} p-5 border-2 border-[#dcd3ee] bg-gradient-to-r from-[#f6f2ff] via-[#faf8fe] to-white flex flex-wrap items-center justify-between gap-4`}>
+      <div>
+       <div className="flex flex-wrap items-center gap-2">
+        <Tag>전남·광주 4개대 + 전국 거점국립대 + 서울 주요대 전 학과망</Tag>
+        <span className="rounded-md bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
+         🔄 매월 초 '어디가' 자동 갱신됨 ({adigaSyncMeta?.lastSyncedDate || day()} 기준 · 총 {allCutoffs.length}개 모집단위)
+        </span>
+       </div>
+       <h2 className="mt-2 text-lg font-extrabold text-ink">📊 5등급제 내신 산출기 & 대학어디가(50%·70%컷) 전 학과 치환 상담실</h2>
+       <p className="mt-0.5 text-xs text-slate-600">
+        전남대·조선대·순천대·목포대와 서울 주요대·전국 거점국립대의 전 학과 50%·70%컷을 <strong>5등급제로 자동 치환</strong>하여 제공합니다.
+       </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+       <Button onClick={() => syncMonthlyAdigaCutoffs(false)}>
+        🔄 월간 '어디가' 입결 최신 갱신
+       </Button>
+       <Button primary onClick={()=>print(printAdmissionReportHTML())}>
+        <Monitor className="h-4 w-4"/>대입 상담 리포트 인쇄
+       </Button>
+      </div>
+     </section>
+
+     {/* 1단: [좌측] 과목별 이수단위 반영 5등급제 내신 산출기 ↔ [우측] 양방향 변환기 · 수능최저 포함 목표학과 역산기 · 핵심 조견표 (좌우 높이 균형 맞춤) */}
+     <div className="grid items-stretch gap-5 xl:grid-cols-2">
+      {/* 좌측: 5등급제 과목별 가중평균 내신 계산기 */}
+      <section className={`${PANEL} flex flex-col justify-between p-5 border-2 border-[#dcd3ee] space-y-4`}>
+       <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
+         <div>
+          <Tag>STEP 1 · 전교과 및 계열별(국영수사/국영수과) 5등급 산출</Tag>
+          <h3 className="mt-1.5 text-base font-extrabold text-ink">🧮 5등급제 학생부 내신 등급 산출기</h3>
+         </div>
+         <div className="flex items-center gap-2">
+          <input
+           value={admStuName}
+           onChange={e => setAdmStuName(e.target.value)}
+           list="adm-hr-students"
+           placeholder="학생 이름·학반 (선택)"
+           className={INPUT + " !w-44 !py-1.5 !text-xs font-bold text-brand"}
+          />
+          <datalist id="adm-hr-students">
+           {(data.students || []).map(s => <option key={s.id} value={`${s.number}번 ${s.name}`}/>)}
+          </datalist>
+         </div>
+        </div>
+
+        {/* 계산된 5등급 내신 & 9등급 환산 하이라이트 배너 */}
+        <div className="grid grid-cols-3 gap-2.5 rounded-2xl border-2 border-brand bg-[#faf8fe] p-4 text-center">
+         <div className="border-r border-[#dcd3ee] pr-2">
+          <p className="text-[11px] font-bold text-slate-500">전교과 5등급 내신</p>
+          <p className="mt-1 text-2xl font-black text-brand">{calculatedG5.toFixed(2)}<span className="text-xs font-bold"> 등급</span></p>
+          <p className="mt-0.5 text-[10px] text-slate-600 font-semibold">인문(국영수사) {humG5} · 자연(국영수과) {sciG5}</p>
+         </div>
+         <div className="border-r border-[#dcd3ee] px-2">
+          <p className="text-[11px] font-bold text-slate-500">구 9등급제 환산 내신</p>
+          <p className="mt-1 text-2xl font-black text-emerald-700">≈ {activeConv.g9.toFixed(2)}<span className="text-xs font-bold"> 등급</span></p>
+          <p className="mt-0.5 text-[10px] text-emerald-700 font-semibold">어디가 9등급 입결 비교용</p>
+         </div>
+         <div className="pl-2">
+          <p className="text-[11px] font-bold text-slate-500">추정 누적 백분위</p>
+          <p className="mt-1 text-2xl font-black text-ink">상위 {activeConv.pct}<span className="text-xs font-bold">%</span></p>
+          <p className="mt-0.5 text-[10px] text-slate-500">{calculatedG5 <= 1.50 ? "5등급제 1등급권" : calculatedG5 <= 2.50 ? "5등급제 2등급권" : "5등급제 3~5등급권"}</p>
+         </div>
+        </div>
+
+        {/* 과목별 입력 테이블 */}
+        <div className="space-y-2 max-h-[290px] overflow-y-auto pr-1">
+         {admRows.map((row, idx) => (
+          <div key={row.id} className="grid grid-cols-[70px_1fr_72px_90px_70px_32px] gap-1.5 items-center text-xs">
+           <select
+            value={row.term}
+            onChange={e => setAdmRows(admRows.map((r, i) => i === idx ? { ...r, term: e.target.value } : r))}
+            className="rounded-lg border border-line bg-paper px-2 py-1.5 font-bold text-slate-700"
+           >
+            {["1-1","1-2","2-1","2-2","3-1","3-2"].map(t => <option key={t} value={t}>{t}</option>)}
+           </select>
+           <input
+            value={row.subject}
+            onChange={e => setAdmRows(admRows.map((r, i) => i === idx ? { ...r, subject: e.target.value } : r))}
+            placeholder="과목명"
+            className="rounded-lg border border-line bg-white px-2.5 py-1.5 font-bold text-ink"
+           />
+           <div className="flex items-center gap-1">
+            <input
+             type="number" min="1" max="6"
+             value={row.credit}
+             onChange={e => setAdmRows(admRows.map((r, i) => i === idx ? { ...r, credit: Number(e.target.value) || 1 } : r))}
+             className="w-full rounded-lg border border-line bg-white px-2 py-1.5 text-center font-bold"
+             title="학점(단위수)"
+            />
+            <span className="text-[10px] text-slate-400 shrink-0">학점</span>
+           </div>
+           <select
+            value={row.grade5}
+            onChange={e => setAdmRows(admRows.map((r, i) => i === idx ? { ...r, grade5: Number(e.target.value) } : r))}
+            className="rounded-lg border border-[#dcd3ee] bg-[#faf8fe] px-2 py-1.5 font-extrabold text-brand"
+           >
+            {[1,2,3,4,5].map(g => <option key={g} value={g}>{g}등급</option>)}
+           </select>
+           <select
+            value={row.achievement}
+            onChange={e => setAdmRows(admRows.map((r, i) => i === idx ? { ...r, achievement: e.target.value } : r))}
+            className="rounded-lg border border-line bg-white px-2 py-1.5 font-bold text-emerald-700"
+           >
+            {["A","B","C","D","E"].map(a => <option key={a} value={a}>성취 {a}</option>)}
+           </select>
+           <button
+            type="button"
+            onClick={() => setAdmRows(admRows.filter((_, i) => i !== idx))}
+            className="p-1 text-slate-400 hover:text-red-600"
+            title="과목 삭제"
+           >
+            <Trash2 className="h-4 w-4"/>
+           </button>
+          </div>
+         ))}
+        </div>
+       </div>
+
+       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
+        <div className="flex gap-2">
+         <Button className="!min-h-[34px] !px-3 !py-1 !text-xs" onClick={() => setAdmRows([...admRows, { id: uid(), term: "1-2", subject: "", credit: 3, grade5: 1, achievement: "A" }])}>
+          <Plus className="h-3.5 w-3.5"/>과목 추가
+         </Button>
+         <Button className="!min-h-[34px] !px-3 !py-1 !text-xs" onClick={() => setAdmRows([])}>
+          초기화 (직접 입력 모드)
+         </Button>
+        </div>
+        {totalCredits === 0 && (
+         <div className="flex items-center gap-2 text-xs">
+          <span className="font-bold text-brand">5등급 평균 직접 입력:</span>
+          <input
+           type="number" step="0.05" min="1.00" max="5.00"
+           value={admDirectG5}
+           onChange={e => setAdmDirectG5(e.target.value)}
+           className="w-20 rounded-lg border-2 border-brand px-2 py-1 text-center font-extrabold text-brand"
+          />
+         </div>
+        )}
+       </div>
+      </section>
+
+      {/* 우측: 9등급 ↔ 5등급 양방향 즉시 치환기 & 수능최저 포함 역산 시뮬레이터 & 핵심 조견표 */}
+      <section className={`${PANEL} flex flex-col justify-between p-5 border-2 border-[#dcd3ee] space-y-3.5`}>
+       <div className="space-y-3.5">
+        <div className="border-b border-line pb-3">
+         <Tag>STEP 2 · 양방향 등급 변환 & 목표 학과 역산 (수능최저 포함)</Tag>
+         <h3 className="mt-1.5 text-base font-extrabold text-ink">🔄 9등급 ↔ 5등급 변환기 & 목표 학과 역산 시뮬레이터</h3>
+        </div>
+
+        {/* 양방향 즉시 변환 박스 */}
+        <div className="grid gap-3 sm:grid-cols-2">
+         <div className="rounded-xl border-2 border-brand bg-[#faf8fe] p-3 space-y-1.5">
+          <label className="block text-xs font-extrabold text-brand">① 기존 9등급제 입결 입력</label>
+          <div className="flex items-center gap-2">
+           <input
+            type="number" step="0.05" min="1.00" max="9.00"
+            value={admDirectG9}
+            onChange={e => setAdmDirectG9(e.target.value)}
+            className={INPUT + " !py-1 text-center text-base font-black text-ink bg-white"}
+           />
+           <span className="text-xs font-bold shrink-0">등급(9등급)</span>
+          </div>
+          <div className="rounded-lg bg-white border border-[#dcd3ee] p-1.5 text-center">
+           <span className="text-[10.5px] text-slate-500">5등급제 치환 (상위 {reverseConv.pct}%)</span>
+           <p className="text-sm font-black text-brand">👉 5등급제 {reverseConv.g5.toFixed(2)} 등급</p>
+          </div>
+         </div>
+
+         <div className="rounded-xl border-2 border-emerald-500/60 bg-emerald-50/40 p-3 space-y-1.5">
+          <label className="block text-xs font-extrabold text-emerald-800">② 학생 5등급제 내신 직접 입력</label>
+          <div className="flex items-center gap-2">
+           <input
+            type="number" step="0.05" min="1.00" max="5.00"
+            value={admDirectG5}
+            onChange={e => {
+             setAdmDirectG5(e.target.value);
+             if(totalCredits > 0) setAdmRows([]);
+            }}
+            className={INPUT + " !py-1 text-center text-base font-black text-emerald-900 bg-white"}
+           />
+           <span className="text-xs font-bold shrink-0">등급(5등급)</span>
+          </div>
+          <div className="rounded-lg bg-white border border-emerald-200 p-1.5 text-center">
+           <span className="text-[10.5px] text-slate-500">구 9등급 환산 (상위 {convert5To9Grade(admDirectG5).pct}%)</span>
+           <p className="text-sm font-black text-emerald-700">👉 9등급제 {convert5To9Grade(admDirectG5).g9.toFixed(2)} 등급</p>
+          </div>
+         </div>
+        </div>
+
+        {/* 희망 학과 합격선 역산 시뮬레이터 (수능최저학력기준 포함) */}
+        {goalTargetItem && (
+         <div className="rounded-xl border-2 border-amber-300 bg-amber-50/60 p-3.5 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+           <span className="text-xs font-extrabold text-amber-950">🎯 희망 학과 합격선 · 수능최저 역산 시뮬레이터</span>
+           <select
+            value={goalTargetItem.id}
+            onChange={e => setAdmTargetGoalId(e.target.value)}
+            className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-bold text-ink max-w-[235px]"
+           >
+            {allCutoffs.map(item => (
+             <option key={item.id} value={item.id}>{item.univ} · {item.dept}</option>
+            ))}
+           </select>
+          </div>
+          <div className="rounded-lg bg-white border border-amber-200 p-3 text-xs leading-6 text-slate-700 space-y-1.5">
+           <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <span>
+             <strong>[{goalTargetItem.univ} {goalTargetItem.dept}]</strong> 5등급 50%컷 <strong className="text-brand">{goalTargetItem.cut50_5.toFixed(2)}등급</strong> (70%컷 {goalTargetItem.cut70_5.toFixed(2)})
+            </span>
+            <span className="rounded-md bg-red-50 border border-red-200 px-2 py-0.5 text-[11px] font-extrabold text-red-700">
+             🎓 수능최저: {goalTargetItem.minCsat}
+            </span>
+           </div>
+           <p className="font-bold text-ink">
+            {calculatedG5 <= goalTargetItem.cut50_5
+             ? `✅ 현재 성적(${calculatedG5.toFixed(2)}등급)으로 50%컷 이내 적정권입니다! 반드시 수능최저(${goalTargetItem.minCsat}) 충족 모의고사 성적을 함께 점검하세요.`
+             : neededFutureG5 >= 1.00
+             ? `📈 남은 학기(약 ${remainingCreditsAssume}학점 기준) 평균 [${neededFutureG5.toFixed(2)}등급] 이상 취득 시 50%컷 도달 가능! (수능최저: ${goalTargetItem.minCsat})`
+             : `💡 교과 50%컷 도달이 빠듯하므로 70%컷(${goalTargetItem.cut70_5.toFixed(2)}등급) 또는 수능최저(${goalTargetItem.minCsat}) 충족 후 학생부종합전형을 병행하세요.`}
+           </p>
+          </div>
+         </div>
+        )}
+       </div>
+
+       {/* 하단 콤팩트 5등급↔9등급 주요 구간 조견표 (좌측 높이와 자연스럽게 균형 맞춤) */}
+       <div className="overflow-hidden rounded-xl border border-line">
+        <table className="w-full border-collapse text-center text-[10.5px]">
+         <thead>
+          <tr className="bg-[#f4f1fa] text-[#493b7a] border-b border-line">
+           <th className="py-1.5 px-2">5등급제</th>
+           <th className="py-1.5 px-2">누적백분위</th>
+           <th className="py-1.5 px-2">구 9등급 환산</th>
+           <th className="py-1.5 px-2 text-left">주요 지원권 가이드</th>
+          </tr>
+         </thead>
+         <tbody>
+          {[
+           ["1.00 ~ 1.15", "상위 1~4.5%", "1.00 ~ 1.55", "의약학 · 서울대 · 연고대 · 성서한 상위"],
+           ["1.20 ~ 1.50", "상위 5~10%", "1.65 ~ 2.14", "중경외시 · 건동홍숙 · 전남대 간호/특성화"],
+           ["1.51 ~ 1.85", "상위 10~18%", "2.15 ~ 3.10", "전남대·거점국립대 주력학과 · 교대권"],
+           ["1.86 ~ 2.50", "상위 18~34%", "3.11 ~ 4.15", "조선대·순천대·목포대 주력 및 사범/보건계열"]
+          ].map(([g5s, pcs, g9s, desc], i) => (
+           <tr key={i} className="border-b border-line last:border-0 bg-white">
+            <td className="py-1.5 px-2 font-extrabold text-brand">{g5s}</td>
+            <td className="py-1.5 px-2 text-slate-600">{pcs}</td>
+            <td className="py-1.5 px-2 font-bold text-emerald-700">{g9s}</td>
+            <td className="py-1.5 px-2 text-left text-slate-600 truncate">{desc}</td>
+           </tr>
+          ))}
+         </tbody>
+        </table>
+       </div>
+      </section>
+     </div>
+
+     {/* 2단: 대학별 전체 학과 50%컷 · 70%컷 5등급 치환 비교 테이블 (서울·수도권 -> 전남·광주 -> 거점국립대 -> 사범·교대 순 + 학과 계열 필터) */}
+     <section className={`${PANEL} p-5 space-y-4`}>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+       <div>
+        <Tag>STEP 3 · 대학별 · 학과별 50%컷 · 70%컷 ➔ 5등급제 자동 치환 비교</Tag>
+        <h3 className="mt-1.5 text-base font-extrabold text-ink">
+         🏛️ 대학별 · 학과별 입시결과 치환표 ({filteredCutoffs.length}개 학과 · [{admStuName.trim() || "현재 학생"}: {calculatedG5.toFixed(2)}등급])
+        </h3>
+       </div>
+       <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1 rounded-xl bg-paper p-1 border border-line">
+         {["전체","서울·수도권","전남·광주권","지역거점국립대","사범·교대"].map(reg => (
+          <button
+           type="button"
+           key={reg}
+           onClick={() => { setAdmRegionFilter(reg); setAdmSelectedUniv("전체"); }}
+           className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${admRegionFilter === reg ? "bg-brand text-white shadow-xs" : "text-slate-600 hover:bg-white"}`}
+          >
+           {reg}
+          </button>
+         ))}
+        </div>
+        <select
+         aria-label="대학 선택"
+         value={admSelectedUniv}
+         onChange={e => setAdmSelectedUniv(e.target.value)}
+         className={INPUT + " !w-44 !py-1.5 !text-xs font-extrabold text-brand"}
+        >
+         <option value="전체">🏫 전체 대학 ({regionUnivs.length}개교)</option>
+         {regionUnivs.map(u => <option key={u} value={u}>{u}</option>)}
+        </select>
+        <select
+         aria-label="학과 계열 구분"
+         value={admDeptGroupFilter}
+         onChange={e => setAdmDeptGroupFilter(e.target.value)}
+         className={INPUT + " !w-44 !py-1.5 !text-xs font-bold text-ink"}
+        >
+         <option value="전체">📚 전체 학과 계열</option>
+         {["의약학·간호·보건","공학·AI·SW·건축","상경·경영·경제·통계","인문·사회·법행정","사범·초등교육","자연·생활·농생명"].map(grp => (
+          <option key={grp} value={grp}>{grp}</option>
+         ))}
+        </select>
+        <div className="relative w-48">
+         <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400"/>
+         <input
+          value={admUnivSearch}
+          onChange={e => setAdmUnivSearch(e.target.value)}
+          placeholder="학과명 검색 (예: 간호, 컴퓨터)"
+          className={INPUT + " !py-1.5 pl-9 !text-xs"}
+         />
+        </div>
+       </div>
+      </div>
+
+
+      <div className="overflow-x-auto rounded-xl border border-line max-h-[620px]">
+       <table className="w-full border-collapse text-xs">
+        <thead className="sticky top-0 z-10">
+         <tr className="border-b border-line bg-[#f4f1fa] text-[#493b7a]">
+          <th className="p-3 text-left">권역 · 대학명 · 모집단위(학과)</th>
+          <th className="p-3 text-center">전형 유형</th>
+          <th className="p-3 text-center bg-slate-100/90">기존 9등급제 입결<br/><span className="text-[10px] font-normal text-slate-500">(50%컷 / 70%컷)</span></th>
+          <th className="p-3 text-center bg-[#eee9fa]">👉 5등급제 자동 치환 컷<br/><span className="text-[10px] font-bold text-brand">(50%컷 / 70%컷)</span></th>
+          <th className="p-3 text-center">내 5등급 내신({calculatedG5.toFixed(2)})<br/>지원 가능성 진단</th>
+          <th className="p-3 text-left">수능 최저 및 5등급제 상담 팁</th>
+         </tr>
+        </thead>
+        <tbody>
+         {filteredCutoffs.map(c => (
+          <tr
+           key={c.id}
+           onClick={() => setAdmTargetGoalId(c.id)}
+           className={`cursor-pointer border-b border-line last:border-0 transition-colors ${goalTargetItem?.id === c.id ? "bg-[#faf8fe]" : "hover:bg-paper/40"}`}
+           title="클릭하면 상단 목표 성적 역산 시뮬레이터에 반영됩니다"
+          >
+           <td className="p-3">
+            <span className="mr-1.5 rounded bg-paper px-1.5 py-0.5 text-[10px] font-bold text-slate-500">{c.region}</span>
+            <strong className="font-extrabold text-ink text-sm">{c.univ}</strong>
+            <div className="mt-0.5 font-bold text-brand">{c.dept}</div>
+           </td>
+           <td className="p-3 text-center font-semibold text-slate-600 whitespace-nowrap">{c.type}</td>
+           <td className="p-3 text-center bg-slate-50/70 font-mono text-slate-600 whitespace-nowrap">
+            <strong>{c.cut50_9.toFixed(2)}</strong> / {c.cut70_9.toFixed(2)}
+            <div className="text-[10px] text-slate-400">상위 {c.pct50}%~{c.pct70}%</div>
+           </td>
+           <td className="p-3 text-center bg-[#faf8fe] font-mono whitespace-nowrap">
+            <span className="text-sm font-black text-brand">{c.cut50_5.toFixed(2)}</span>
+            <span className="mx-1 text-slate-400">/</span>
+            <span className="text-sm font-extrabold text-indigo-700">{c.cut70_5.toFixed(2)}</span>
+            <div className="text-[10px] font-semibold text-brand">5등급 기준 컷</div>
+           </td>
+           <td className="p-3 text-center whitespace-nowrap">
+            <span className={`inline-block rounded-lg border px-2.5 py-1 text-[11px] font-extrabold ${c.badgeCls}`}>
+             {c.status}
+            </span>
+           </td>
+           <td className="p-3 text-slate-600 leading-5">
+            <div className="font-bold text-ink">🎯 수능최저: {c.minCsat}</div>
+            <div className="text-[11px] text-slate-500">{c.note}</div>
+           </td>
+          </tr>
+         ))}
+        </tbody>
+       </table>
+      </div>
+
+      {/* 상담일지 연동 바 */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-4">
+       <div className="text-xs text-slate-600">
+        💡 표의 특정 학과 행을 클릭하시면 상단 <strong>[🎯 희망 학과 목표 성적 역산 시뮬레이터]</strong>에서 남은 학기 필요 등급을 바로 계산할 수 있습니다.
+       </div>
+       <div className="flex flex-wrap gap-2 shrink-0">
+        {data.profile.homeroom && (
+         <Button
+          primary
+          onClick={() => {
+           const stuLabel = admStuName.trim() || (data.students[0] ? `${data.students[0].number}번 ${data.students[0].name}` : "상담학생");
+           const fitUnivs = filteredCutoffs.filter(c => c.status.includes("안정") || c.status.includes("소신")).slice(0, 8).map(c => `${c.univ} ${c.dept}(5등급치환 50%컷:${c.cut50_5}/70%컷:${c.cut70_5})`);
+           const bodyTxt = `[5등급제 내신 산출 및 대학어디가 입결 치환 대입 상담]\n• 산출 5등급 내신: 전교과 ${calculatedG5.toFixed(2)}등급 (국영수사 ${humG5} / 국영수과 ${sciG5})\n• 구 9등급제 환산 내신: 약 ${activeConv.g9.toFixed(2)}등급 (상위 누적 약 ${activeConv.pct}%)\n• 적정·소신 지원 가능 대학군:\n  - ${fitUnivs.join("\n  - ") || "맞춤 탐색 진행"}`;
+           const newNote = {
+            id: uid(),
+            student: stuLabel,
+            target: "학생",
+            category: "진로·학업",
+            date: day(),
+            time: nowTimeStr(),
+            title: `[대입상담] 5등급 내신(${calculatedG5.toFixed(2)}등급 ↔ 9등급 환산 ${activeConv.g9.toFixed(2)}) 진학 설계`,
+            body: bodyTxt,
+            followUp: "희망 대학 수능 최저학력기준 확인 및 핵심 권장과목 세특 심화 지도",
+            updatedAt: new Date().toISOString()
+           };
+           update(d => ({ ...d, notes: [...(d.notes || []), newNote] }));
+           notify(`[${stuLabel}] 대입 진학 상담 결과를 누적 상담일지에 저장했습니다!`);
+          }}
+         >
+          💬 이 대입 상담 결과를 누적 상담일지에 저장
+         </Button>
+        )}
+       </div>
+      </div>
+     </section>
+    </div>;
+   })()}
+
+   {page==="온라인 등록부"&&<><div className="mb-5 flex justify-end"><Button primary onClick={()=>setModal({type:"record",kind:"training"})}><Plus className="h-4 w-4"/>새 연수 개설</Button></div>
+{data.trainings.length?<section className={`${PANEL} p-5 md:p-6`}><Field label="참여할 연수 선택" id="training-select"><select id="training-select" className={INPUT} value={data.trainings.some(t=>t.id===trainingId)?trainingId:data.trainings[0].id} onChange={e=>setTrainingId(e.target.value)}>{data.trainings.map(t=><option key={t.id} value={t.id}>{t.title}</option>)}</select></Field>{(()=>{
     const t=data.trainings.find(x=>x.id===trainingId)||data.trainings[0],rows=data.registry.filter(r=>r.trainingId===t.id);
     const baseUrl = window.location.origin + window.location.pathname;
     const shareUrl = `${baseUrl}?page=registry&tid=${encodeURIComponent(t.id)}${code?`&code=${code}`:""}`;
@@ -11121,15 +13496,15 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
 </footer>
    </main>
 
-   {/* 📱 모바일 전용 하단 고정 네비게이션 바 (마스터·학교관리자 로그인 시 '계정승인' 탭 자동 추가) */}
+   {/* 📱 모바일 전용 하단 고정 네비게이션 바 (일정·할일 통합 + 과목설계 추가 + 마스터 계정승인 탭) */}
     <nav aria-label="모바일 하단 빠른 메뉴" className={`fixed bottom-0 inset-x-0 z-30 grid ${["master","subadmin"].includes(currentUser?.role) ? "grid-cols-5" : "grid-cols-4"} h-[calc(62px+env(safe-area-inset-bottom,0px))] items-center border-t border-[#dcd3ee] bg-white/95 px-2 pt-1 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur lg:hidden shadow-[0_-4px_16px_rgba(35,32,65,0.08)]`}>
      {[
       ["오늘의 교무실", "홈", Home],
       ["출결·제출물 관리", "출결", User],
-      ["나의 일정", "일정", Calendar],
-      ["할 일 목록", "할 일", CheckCircle]
+      ["할 일 목록", "일정·할일", Calendar],
+      ["학점제 과목 설계실", "과목설계", Target]
      ].map(([targetPage, shortLabel, Icon]) => {
-     const active = page === targetPage && modal?.type !== "masterAdmin";
+     const active = (targetPage === "할 일 목록" ? ["할 일 목록","나의 일정"].includes(page) : page === targetPage) && modal?.type !== "masterAdmin";
      return (
       <button
        type="button"
@@ -11289,24 +13664,69 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
   </div>
  </Dialog>}
 
- {modal?.type==="profile"&&<Dialog title="나의 학교·담임 여부·학급 설정" onClose={()=>setModal(null)}><form className="space-y-5" onSubmit={e=>{
+ {modal?.type==="profile"&&<Dialog title="나의 학교·담임 여부·학급 설정" onClose={()=>setModal(null)}><form className="space-y-5" onSubmit={async e=>{
   e.preventDefault();
   const f=new FormData(e.currentTarget);
   const isHr = f.has("homeroom");
   const gradeVal = isHr ? (Number(f.get("grade")) || data.profile.grade || 1) : data.profile.grade;
   const classVal = isHr ? (Number(f.get("classroom")) || data.profile.classroom || 1) : data.profile.classroom;
-  const p={school:f.get("school").trim(),teacher:f.get("teacher").trim(),grade:gradeVal,classroom:classVal,homeroom:isHr};
+  const p={school:f.get("school").trim(),teacher:cleanMasterLabel(f.get("teacher").trim()),grade:gradeVal,classroom:classVal,homeroom:isHr};
   if(!p.school)return;
+  const targetDept = `${gradeVal}-${classVal}`;
   const label = isHr ? `${p.grade}학년 ${p.classroom}반` : ((data.subjectClasses||[]).find(c=>c.id!=="homeroom")?.name || "담당 학급");
-  update(d=>({...d,profile:p,studio:{...d.studio,settings:{...d.studio.settings,school:p.school,teacher:p.teacher,target:label,location:isHr?`${label} 교실`:"교실"}}}));
+
+  let syncedMaster = null;
+  update(d=>{
+   const prevMaster = d.schoolMasterData || {teachers:{},classTimetables:{},homeroomRosters:{},electiveRosters:{},homeroomTeachers:{},electiveRooms:{},updatedAt:""};
+   const nextHrTeachers = { ...(prevMaster.homeroomTeachers || {}) };
+   if(p.teacher){
+    Object.keys(nextHrTeachers).forEach(k => {
+     if(cleanMasterLabel(nextHrTeachers[k]) === p.teacher) delete nextHrTeachers[k];
+    });
+    if(isHr) nextHrTeachers[targetDept] = p.teacher;
+   }
+   syncedMaster = { ...prevMaster, homeroomTeachers: nextHrTeachers, updatedAt: new Date().toISOString() };
+   const newHrStudents = isHr ? getHomeroomStudentsFromMaster(targetDept, syncedMaster, d) : [];
+   const resolvedStudents = isHr ? (newHrStudents.length > 0 ? newHrStudents : d.students) : [];
+   const nextSubjectClasses = (d.subjectClasses || []).map(c =>
+    c.id === "homeroom"
+     ? { ...c, name: `우리반 (${gradeVal}학년 ${classVal}반 담임 명렬)`, room: isHr ? targetDept : "", students: resolvedStudents }
+     : c
+   );
+   return {
+    ...d,
+    profile: p,
+    students: resolvedStudents,
+    subjectClasses: nextSubjectClasses,
+    schoolMasterData: syncedMaster,
+    studio: {
+     ...d.studio,
+     settings: {
+      ...d.studio.settings,
+      school: p.school,
+      teacher: p.teacher,
+      target: label,
+      location: isHr ? `${label} 교실` : "교실"
+     }
+    }
+   };
+  });
+
   if(currentUser){
    const nextSession = { ...currentUser, name: p.teacher || currentUser.name, school: p.school, homeroom: isHr, grade: gradeVal, classroom: classVal };
    setCurrentUser(nextSession);
    if(localStorage.getItem("gyomusil-auth-session")) localStorage.setItem("gyomusil-auth-session", JSON.stringify(nextSession));
    if(sessionStorage.getItem("gyomusil-auth-session")) sessionStorage.setItem("gyomusil-auth-session", JSON.stringify(nextSession));
+   if(accountsList.length > 0){
+    const nextAccs = accountsList.map(a => a.username === currentUser.username ? { ...a, name: p.teacher || a.name, school: p.school, homeroom: isHr, grade: gradeVal, classroom: classVal } : a);
+    saveAccountsChannel(nextAccs).catch(()=>{});
+   }
+  }
+  if(syncedMaster){
+   pushSharedSchoolRoster({ schoolMasterData: syncedMaster }).catch(()=>{});
   }
   setModal(null);
-  notify(isHr ? `담임교사(${p.grade}학년 ${p.classroom}반) 설정으로 적용했습니다.` : "비담임(교과전담) 모드로 설정했습니다. 담임 전용 메뉴가 자동으로 숨겨집니다.");
+  notify(isHr ? `담임교사(${p.grade}학년 ${p.classroom}반)로 즉시 변경되어 해당 학급 명렬과 연동되었습니다!` : "비담임(교과전담) 모드로 즉시 전환되었습니다.");
  }}>
   {[["school","학교명"],["teacher","교사 이름 · 선택"]].map(([k,l])=><Field key={k} label={l} id={"profile-"+k}><input id={"profile-"+k} name={k} required={k==="school"} className={INPUT} defaultValue={data.profile[k]}/></Field>)}
 
@@ -11802,11 +14222,27 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
         onChange={async e => {
          const nextSc = e.target.value;
          setSelectedSchool(nextSc);
+         setSelectedMasterTeacher("");
+         autoAppliedKeyRef.current = "";
          localStorage.setItem("gyomusil-selected-school", nextSc);
          setCurrentUser(prev => prev ? { ...prev, school: nextSc } : prev);
-         update(d => ({ ...d, profile: { ...d.profile, school: nextSc } }));
+         const emptyMaster = {
+          teachers: {}, classTimetables: {}, homeroomRosters: {}, electiveRosters: {},
+          homeroomTeachers: {}, electiveRooms: {}, effectiveDate: day(), versions: [],
+          schoolConfig: templateConfig, updatedAt: ""
+         };
+         update(d => ({
+          ...d,
+          profile: { ...d.profile, school: nextSc },
+          students: [],
+          subjectClasses: [{ id: "homeroom", name: "우리반 (담임 기본 명렬)", subject: "학급", students: [] }],
+          timetable: {},
+          schoolMasterData: emptyMaster,
+          electiveMatrix: { headers: ["A타임","B타임","C타임","D타임"], rows: [], periodSlotMap: {} }
+         }));
          sharedVersionRef.current = 0;
          await pullSharedSchoolRoster(false, nextSc);
+         notify(`[${nextSc}] 관리 채널로 전환했습니다.`);
         }}
        >
         {schoolsList.map(sc => <option key={sc} value={sc}>{sc}</option>)}
@@ -11927,17 +14363,204 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
      </div>
     </section>
 
-    {/* 2. 교사 계정 승인 · 학급 배정 수정 · 권한 및 비밀번호 초기화 */}
+    {/* 1-B. [엑셀 재업로드 없이 웹에서 바로 부분 수정] 학급별 담임 배정 & 교사별 시간표·강의실 실시간 수정기 */}
+    <section className="rounded-xl border-2 border-[#dcd3ee] bg-[#faf8fe] p-5 space-y-5">
+     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#dcd3ee] pb-3">
+      <div>
+       <Tag>⚡ 엑셀 재업로드 없이 웹에서 바로 수정</Tag>
+       <h3 className="mt-1.5 text-base font-bold text-ink">🛠️ 학급별 담임교사 · 교사별 시간표 · 수업장소(강의실) 즉시 수정기</h3>
+       <p className="mt-0.5 text-xs text-slate-600">담임이 잘못 입력되었거나 특정 선생님의 시간표·강의실만 일부 바뀔 때, 아래 칸에서 바로 고치면 전교생·전교사 화면에 즉시 반영됩니다.</p>
+      </div>
+     </div>
+
+     {/* (1) 학급별 담임교사 한눈에 확인 및 즉시 변경 */}
+     <div className="rounded-xl border border-[#dcd3ee] bg-white p-4 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+       <h4 className="text-xs font-extrabold text-brand">🏫 ① 학급별 담임교사 배정 즉시 수정 (이름을 수정하거나 비우면 즉시 반영됩니다)</h4>
+       <span className="text-[11px] text-slate-500">현재 배정: {Object.keys(data.schoolMasterData?.homeroomTeachers||{}).length}개 학급</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-7">
+       {[1,2,3].flatMap(g => Array.from({length: Math.max(1, Number(templateConfig[`g${g}`])||7)}, (_, i) => `${g}-${i+1}`)).map(deptKey => {
+        const curT = data.schoolMasterData?.homeroomTeachers?.[deptKey] || "";
+        return (
+         <div key={deptKey} className="rounded-lg border border-line bg-paper p-2 flex flex-col gap-1">
+          <span className="text-[11px] font-extrabold text-brand">{deptKey}반 담임</span>
+          <input
+           list="master-all-teachers-datalist"
+           defaultValue={curT}
+           key={`${deptKey}-${curT}`}
+           placeholder="교사명 입력"
+           className="w-full rounded border border-[#d5cce8] bg-white px-2 py-1 text-xs font-bold text-ink focus:border-brand"
+           onBlur={async e => {
+            const nextT = cleanMasterLabel(e.target.value.trim());
+            if(nextT === curT) return;
+            const prevMaster = live.current.schoolMasterData || {};
+            const nextHrMap = { ...(prevMaster.homeroomTeachers || {}) };
+            if(!nextT) delete nextHrMap[deptKey];
+            else nextHrMap[deptKey] = nextT;
+            const updatedMaster = { ...prevMaster, homeroomTeachers: nextHrMap, updatedAt: new Date().toISOString() };
+            update(d => ({ ...d, schoolMasterData: updatedMaster }));
+            await pushSharedSchoolRoster({ schoolMasterData: updatedMaster }, managedSchool);
+
+            const [gNum, cNum] = deptKey.split("-").map(Number);
+            if(accountsList.length > 0){
+             const nextAccs = accountsList.map(a => {
+              const aName = cleanMasterLabel(a.name);
+              if(nextT && aName === nextT) return { ...a, homeroom: true, grade: gNum, classroom: cNum };
+              if(curT && aName === curT && a.grade === gNum && a.classroom === cNum) return { ...a, homeroom: false };
+              return a;
+             });
+             await saveAccountsChannel(nextAccs);
+            }
+            notify(`[${deptKey}반] 담임교사를 ${nextT ? `'${nextT}' 선생님으로 변경` : "해제"}하여 즉시 반영했습니다!`);
+           }}
+          />
+         </div>
+        );
+       })}
+      </div>
+      <datalist id="master-all-teachers-datalist">
+       {Array.from(new Set([...Object.keys(data.schoolMasterData?.teachers||{}), ...visibleAccounts.map(a=>cleanMasterLabel(a.name)).filter(Boolean)])).sort((a,b)=>a.localeCompare(b,"ko")).map(t => (
+        <option key={t} value={t}/>
+       ))}
+      </datalist>
+     </div>
+
+     {/* (2) 교사별 주간 시간표 · 과목명 · 수업장소(강의실) 1칸씩 즉시 수정 */}
+     <div className="rounded-xl border border-[#dcd3ee] bg-white p-4 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+       <h4 className="text-xs font-extrabold text-ink">📅 ② 교사별 시간표 · 과목명 · 수업장소(강의실) 부분 수정</h4>
+       <div className="flex flex-wrap items-center gap-2">
+        <select
+         className="rounded-lg border border-[#dcd3ee] bg-[#faf8fe] px-3 py-1.5 text-xs font-bold text-brand"
+         value={selectedMasterTeacher}
+         onChange={e => setSelectedMasterTeacher(e.target.value)}
+        >
+         <option value="">수정할 교사 선택 ({Object.keys(data.schoolMasterData?.teachers||{}).length}명)</option>
+         {Object.keys(data.schoolMasterData?.teachers||{}).sort((a,b)=>a.localeCompare(b,"ko")).map(tName => (
+          <option key={tName} value={tName}>{tName} 선생님 ({(data.schoolMasterData.teachers[tName]||[]).length}시간)</option>
+         ))}
+        </select>
+        <Button className="!min-h-[32px] !px-2.5 !py-1 !text-xs" onClick={async()=>{
+         const newT = prompt("새로 시간표를 추가할 선생님 성함을 입력하세요:");
+         if(!newT || !newT.trim()) return;
+         const cleanT = cleanMasterLabel(newT.trim());
+         const prevMaster = live.current.schoolMasterData || {};
+         const nextTeachers = { ...(prevMaster.teachers || {}), [cleanT]: prevMaster.teachers?.[cleanT] || [] };
+         const updatedMaster = { ...prevMaster, teachers: nextTeachers, updatedAt: new Date().toISOString() };
+         update(d => ({ ...d, schoolMasterData: updatedMaster }));
+         setSelectedMasterTeacher(cleanT);
+         await pushSharedSchoolRoster({ schoolMasterData: updatedMaster }, managedSchool);
+         notify(`${cleanT} 선생님을 시간표 목록에 추가했습니다.`);
+        }}>+ 새 교사 추가</Button>
+       </div>
+      </div>
+
+      {selectedMasterTeacher && (()=>{
+       const tSlots = [...(data.schoolMasterData?.teachers?.[selectedMasterTeacher] || [])].sort((a,b) => {
+        const dOrder = {월:1,화:2,수:3,목:4,금:5};
+        return (dOrder[a.day]||9) - (dOrder[b.day]||9) || Number(a.period) - Number(b.period);
+       });
+       const saveTeacherSlots = async (nextSlotArray, msg="시간표 변경사항을 즉시 반영했습니다.") => {
+        const prevMaster = live.current.schoolMasterData || {};
+        const nextTeachers = { ...(prevMaster.teachers || {}), [selectedMasterTeacher]: nextSlotArray };
+        const updatedMaster = { ...prevMaster, teachers: nextTeachers, updatedAt: new Date().toISOString() };
+        update(d => ({ ...d, schoolMasterData: updatedMaster }));
+        await pushSharedSchoolRoster({ schoolMasterData: updatedMaster }, managedSchool);
+        if(cleanMasterLabel(currentUser?.name || data.profile.teacher) === selectedMasterTeacher){
+         applyTeacherScheduleFromMaster(selectedMasterTeacher, updatedMaster, true);
+        }
+        notify(`[${selectedMasterTeacher} 선생님] ${msg}`);
+       };
+
+       return (
+        <div className="space-y-2.5 pt-1">
+         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 max-h-64 overflow-y-auto p-1">
+          {tSlots.map((sl, idx) => (
+           <div key={`${sl.day}-${sl.period}-${idx}`} className="flex items-center gap-1.5 rounded-lg border border-line bg-paper p-2 text-xs">
+            <select
+             value={sl.day}
+             onChange={e => {
+              const next = tSlots.map((x, i) => i === idx ? { ...x, day: e.target.value } : x);
+              saveTeacherSlots(next);
+             }}
+             className="rounded border border-line bg-white px-1.5 py-1 font-bold text-brand"
+            >
+             {["월","화","수","목","금"].map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select
+             value={sl.period}
+             onChange={e => {
+              const next = tSlots.map((x, i) => i === idx ? { ...x, period: Number(e.target.value) } : x);
+              saveTeacherSlots(next);
+             }}
+             className="rounded border border-line bg-white px-1.5 py-1 font-bold"
+            >
+             {[1,2,3,4,5,6,7].map(p => <option key={p} value={p}>{p}교시</option>)}
+            </select>
+            <input
+             defaultValue={sl.subject}
+             key={`subj-${sl.subject}`}
+             placeholder="과목명"
+             title="과목명 수정 (포커스 해제 시 자동 저장)"
+             onBlur={e => {
+              const val = e.target.value.trim();
+              if(val && val !== sl.subject){
+               const next = tSlots.map((x, i) => i === idx ? { ...x, subject: val } : x);
+               saveTeacherSlots(next);
+              }
+             }}
+             className="min-w-0 flex-1 rounded border border-line bg-white px-2 py-1 font-bold text-ink"
+            />
+            <input
+             defaultValue={sl.room || ""}
+             key={`room-${sl.room}`}
+             placeholder="장소(예:3-5)"
+             title="강의실·학반 수정 (포커스 해제 시 자동 저장)"
+             onBlur={e => {
+              const val = e.target.value.trim();
+              if(val !== (sl.room || "")){
+               const next = tSlots.map((x, i) => i === idx ? { ...x, room: val } : x);
+               saveTeacherSlots(next);
+              }
+             }}
+             className="w-20 rounded border border-[#dcd3ee] bg-white px-2 py-1 text-center font-bold text-emerald-700"
+            />
+            <button
+             type="button"
+             onClick={() => saveTeacherSlots(tSlots.filter((_, i) => i !== idx), `${sl.day}요일 ${sl.period}교시 수업을 삭제했습니다.`)}
+             className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+             title="이 교시 삭제"
+            >
+             <Trash2 className="h-3.5 w-3.5"/>
+            </button>
+           </div>
+          ))}
+         </div>
+         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2">
+          <span className="text-[11px] text-slate-500">💡 과목명이나 장소(예: <code>3-5</code>, <code>미술실</code>)를 고친 뒤 빈 곳을 클릭하면 즉시 자동 저장됩니다.</span>
+          <Button className="!min-h-[32px] !px-3 !py-1 !text-xs" primary onClick={() => {
+           saveTeacherSlots([...tSlots, { day: "월", period: 1, subject: "과목명입력", room: "1-1" }], "새 수업 교시를 추가했습니다.");
+          }}>+ 수업 교시 추가</Button>
+         </div>
+        </div>
+       );
+      })()}
+     </div>
+    </section>
+
+    {/* 2. 교사 계정 승인 · 담임/비담임 원클릭 전환 · 학급 배정 수정 · 권한 및 비밀번호 초기화 */}
     <section className="rounded-xl border-2 border-brand bg-white p-5 space-y-4">
      <div className="flex flex-wrap items-center justify-between gap-2">
       <div>
        <div className="flex items-center gap-2">
-        <Tag>STEP 2 · 교사 계정 승인 및 학급 관리</Tag>
+        <Tag>STEP 2 · 교사 계정 승인 및 담임·학급 관리</Tag>
         {pendingAccountsCount > 0 && <span className="rounded-full bg-red-600 px-2.5 py-0.5 text-[11px] font-bold text-white">승인 대기 {pendingAccountsCount}명</span>}
        </div>
        <h3 className="mt-1.5 text-base font-bold text-ink">
-        {isSuperMaster ? `전체 학교 교사 계정 승인 및 학급·권한 관리 (${visibleAccounts.length}명)` : `[${managedSchool}] 교사 계정 승인 및 담당 학급·비밀번호 관리 (${visibleAccounts.length}명)`}
+        {isSuperMaster ? `전체 학교 교사 계정 승인 및 담임·학급·권한 관리 (${visibleAccounts.length}명)` : `[${managedSchool}] 교사 계정 승인 및 담임·학급·비밀번호 관리 (${visibleAccounts.length}명)`}
        </h3>
+       <p className="mt-0.5 text-xs text-slate-500">[🏫 담임 / 📘 비담임] 버튼이나 학년-반 숫자를 바꾸면 마스터 담임배정표까지 동시에 즉시 변경됩니다.</p>
       </div>
       <div className="flex gap-2">
        {pendingAccountsCount > 0 && (
@@ -11957,8 +14580,8 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
         <tr className="border-b border-line bg-paper text-slate-600">
          <th className="p-2.5 text-left">소속 학교</th>
          <th className="p-2.5 text-left">아이디</th>
-         <th className="p-2.5 text-left">성함</th>
-         <th className="p-2.5 text-center">담당 학년-반</th>
+         <th className="p-2.5 text-left">성함 (클릭 시 수정)</th>
+         <th className="p-2.5 text-center">담임 여부 · 학년-반</th>
          <th className="p-2.5 text-center">권한 등급</th>
          <th className="p-2.5 text-center">승인 상태</th>
          <th className="p-2.5 text-center">관리 작업</th>
@@ -11967,6 +14590,22 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
        <tbody>
         {visibleAccounts.map((acc) => {
          const realIdx = accountsList.findIndex(a => a.username === acc.username);
+         const isAccHr = acc.homeroom !== false;
+         const syncAccountHomeroomToMaster = async (teacherName, nextIsHr, nextG, nextC) => {
+          const cleanT = cleanMasterLabel(teacherName);
+          const prevMaster = live.current.schoolMasterData || {};
+          const nextHrMap = { ...(prevMaster.homeroomTeachers || {}) };
+          Object.keys(nextHrMap).forEach(k => {
+           if(cleanMasterLabel(nextHrMap[k]) === cleanT) delete nextHrMap[k];
+          });
+          if(nextIsHr && cleanT){
+           nextHrMap[`${nextG}-${nextC}`] = cleanT;
+          }
+          const updatedMaster = { ...prevMaster, homeroomTeachers: nextHrMap, updatedAt: new Date().toISOString() };
+          update(d => ({ ...d, schoolMasterData: updatedMaster }));
+          await pushSharedSchoolRoster({ schoolMasterData: updatedMaster }, acc.school || managedSchool);
+         };
+
          return <tr key={acc.username} className="border-b border-line hover:bg-paper/40">
           <td className="p-2.5 font-bold text-brand">
            {isSuperMaster ? (
@@ -11980,36 +14619,74 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
            ) : (acc.school || "광영고등학교")}
           </td>
           <td className="p-2.5 font-mono font-bold">{acc.username}</td>
-          <td className="p-2.5 font-bold text-ink">{acc.name}</td>
+          <td className="p-2.5 font-bold text-ink">
+           <input
+            defaultValue={acc.name}
+            key={`name-${acc.username}-${acc.name}`}
+            className="w-24 rounded border border-transparent hover:border-line focus:border-brand bg-transparent px-1.5 py-1 text-xs font-bold text-ink"
+            onBlur={async e => {
+             const newName = cleanMasterLabel(e.target.value.trim());
+             if(newName && newName !== acc.name){
+              const next = accountsList.map((a,i)=>i===realIdx?{...a,name:newName}:a);
+              await saveAccountsChannel(next);
+              await syncAccountHomeroomToMaster(newName, isAccHr, acc.grade||1, acc.classroom||1);
+              notify(`성함을 '${newName}'(으)로 변경했습니다.`);
+             }
+            }}
+           />
+          </td>
           <td className="p-2.5 text-center">
-           <div className="inline-flex items-center gap-1">
-            <input
-             type="number" min="1" max="6"
-             defaultValue={acc.grade || 1}
-             className="w-11 rounded border border-line px-1.5 py-1 text-center text-xs font-bold"
-             onBlur={async e => {
-              const gVal = Number(e.target.value) || 1;
-              if(gVal !== acc.grade){
-               const next = accountsList.map((a,i)=>i===realIdx?{...a,grade:gVal}:a);
-               await saveAccountsChannel(next);
-               notify(`${acc.name} 선생님의 학년을 ${gVal}학년으로 변경했습니다.`);
-              }
+           <div className="inline-flex items-center gap-1.5">
+            <button
+             type="button"
+             onClick={async () => {
+              const nextHr = !isAccHr;
+              const gVal = Number(acc.grade) || 1;
+              const cVal = Number(acc.classroom) || 1;
+              const next = accountsList.map((a,i)=>i===realIdx?{...a,homeroom:nextHr,grade:gVal,classroom:cVal}:a);
+              await saveAccountsChannel(next);
+              await syncAccountHomeroomToMaster(acc.name, nextHr, gVal, cVal);
+              notify(`${acc.name} 선생님을 [${nextHr ? `${gVal}-${cVal} 담임교사` : "비담임 교과전담"}](으)로 즉시 전환했습니다!`);
              }}
-            />
-            <span>-</span>
-            <input
-             type="number" min="1" max="30"
-             defaultValue={acc.classroom || 1}
-             className="w-11 rounded border border-line px-1.5 py-1 text-center text-xs font-bold"
-             onBlur={async e => {
-              const cVal = Number(e.target.value) || 1;
-              if(cVal !== acc.classroom){
-               const next = accountsList.map((a,i)=>i===realIdx?{...a,classroom:cVal}:a);
-               await saveAccountsChannel(next);
-               notify(`${acc.name} 선생님의 반을 ${cVal}반으로 변경했습니다.`);
-              }
-             }}
-            />
+             className={`rounded-md border px-2 py-1 text-[11px] font-extrabold transition-colors ${isAccHr ? "border-brand bg-[#eee9fa] text-brand" : "border-slate-300 bg-slate-100 text-slate-500"}`}
+            >
+             {isAccHr ? "🏫 담임" : "📘 비담임"}
+            </button>
+            <div className={`inline-flex items-center gap-1 ${isAccHr ? "" : "opacity-35 pointer-events-none"}`}>
+             <input
+              type="number" min="1" max="6"
+              defaultValue={acc.grade || 1}
+              key={`g-${acc.username}-${acc.grade}`}
+              className="w-11 rounded border border-line px-1.5 py-1 text-center text-xs font-bold"
+              onBlur={async e => {
+               const gVal = Number(e.target.value) || 1;
+               if(gVal !== acc.grade){
+                const cVal = Number(acc.classroom) || 1;
+                const next = accountsList.map((a,i)=>i===realIdx?{...a,grade:gVal,homeroom:true}:a);
+                await saveAccountsChannel(next);
+                await syncAccountHomeroomToMaster(acc.name, true, gVal, cVal);
+                notify(`${acc.name} 선생님의 담당 학급을 ${gVal}학년 ${cVal}반으로 즉시 변경했습니다.`);
+               }
+              }}
+             />
+             <span>-</span>
+             <input
+              type="number" min="1" max="30"
+              defaultValue={acc.classroom || 1}
+              key={`c-${acc.username}-${acc.classroom}`}
+              className="w-11 rounded border border-line px-1.5 py-1 text-center text-xs font-bold"
+              onBlur={async e => {
+               const cVal = Number(e.target.value) || 1;
+               if(cVal !== acc.classroom){
+                const gVal = Number(acc.grade) || 1;
+                const next = accountsList.map((a,i)=>i===realIdx?{...a,classroom:cVal,homeroom:true}:a);
+                await saveAccountsChannel(next);
+                await syncAccountHomeroomToMaster(acc.name, true, gVal, cVal);
+                notify(`${acc.name} 선생님의 담당 학급을 ${gVal}학년 ${cVal}반으로 즉시 변경했습니다.`);
+               }
+              }}
+             />
+            </div>
            </div>
           </td>
           <td className="p-2.5 text-center">
