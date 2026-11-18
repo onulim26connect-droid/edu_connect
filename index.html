@@ -1456,14 +1456,14 @@ function buildDailySchoolTimetablePrintHTML(targetDate, gradeFilter="all", d=ini
  const findTeacherSlotDept = (tName, pNum, fallbackClassName) => {
   const fromName = extractDept(fallbackClassName);
   if(fromName) return fromName;
-  const slots = teachersTt[tName] || [];
+  const slots = teachersTt[cleanMasterLabel(tName)] || [];
   const found = slots.find(s => s.day === dayName && Number(s.period) === Number(pNum));
   if(found){
    const fromRoom = extractDept(found.room);
    if(fromRoom) return fromRoom;
   }
   for(const dp of allDepts){
-   if(baseGrid[dp]?.[pNum]?.teacher === tName) return dp;
+   if(cleanMasterLabel(baseGrid[dp]?.[pNum]?.teacher) === cleanMasterLabel(tName)) return dp;
   }
   return "";
  };
@@ -2587,24 +2587,26 @@ function analyzeMinwonMedia(){
  }
 
  function getActiveSwapOverride(dateStr, periodNum){
-  const myName = (currentUser?.name || live.current?.profile?.teacher || "").trim();
+  const myName = cleanMasterLabel((currentUser?.name || live.current?.profile?.teacher || "").trim());
   if(!myName) return null;
   const approvedList = (swapRequestsRef.current || []).filter(r => r.status === "approved");
   for(let i = approvedList.length - 1; i >= 0; i--){
    const r = approvedList[i];
+   const rFrom = cleanMasterLabel(r.fromTeacher);
+   const rTo = cleanMasterLabel(r.toTeacher);
    if(r.type === "temp_swap"){
-    if(r.fromTeacher === myName && r.fromDate === dateStr && Number(r.fromPeriod) === Number(periodNum)){
-     return {mode:"일시교체", classId:r.toClassId, className:r.toClassName, students:r.toStudents||[], partner:r.toTeacher, note:`${r.toTeacher} 선생님 수업과 일시 교체됨`};
+    if(rFrom === myName && r.fromDate === dateStr && Number(r.fromPeriod) === Number(periodNum)){
+     return {mode:"일시교체", classId:r.toClassId, className:r.toClassName, students:r.toStudents||[], partner:rTo, note:`${rTo} 선생님 수업과 일시 교체됨`};
     }
-    if(r.toTeacher === myName && r.toDate === dateStr && Number(r.toPeriod) === Number(periodNum)){
-     return {mode:"일시교체", classId:r.fromClassId, className:r.fromClassName, students:r.fromStudents||[], partner:r.fromTeacher, note:`${r.fromTeacher} 선생님 수업과 일시 교체됨`};
+    if(rTo === myName && r.toDate === dateStr && Number(r.toPeriod) === Number(periodNum)){
+     return {mode:"일시교체", classId:r.fromClassId, className:r.fromClassName, students:r.fromStudents||[], partner:rFrom, note:`${rFrom} 선생님 수업과 일시 교체됨`};
     }
    } else if(r.type === "sub"){
-    if(r.toTeacher === myName && r.fromDate === dateStr && Number(r.fromPeriod) === Number(periodNum)){
-     return {mode:"동교과보강", classId:r.fromClassId, className:r.fromClassName, students:r.fromStudents||[], partner:r.fromTeacher, note:`${r.fromTeacher} 선생님 동교과 보강 대행 중`};
+    if(rTo === myName && r.fromDate === dateStr && Number(r.fromPeriod) === Number(periodNum)){
+     return {mode:"동교과보강", classId:r.fromClassId, className:r.fromClassName, students:r.fromStudents||[], partner:rFrom, note:`${rFrom} 선생님 동교과 보강 대행 중`};
     }
-    if(r.fromTeacher === myName && r.fromDate === dateStr && Number(r.fromPeriod) === Number(periodNum)){
-     return {mode:"보강위임됨", classId:r.fromClassId, className:r.fromClassName, students:r.fromStudents||[], partner:r.toTeacher, note:`${r.toTeacher} 선생님이 보강 진행 중`};
+    if(rFrom === myName && r.fromDate === dateStr && Number(r.fromPeriod) === Number(periodNum)){
+     return {mode:"보강위임됨", classId:r.fromClassId, className:r.fromClassName, students:r.fromStudents||[], partner:rTo, note:`${rTo} 선생님이 보강 진행 중`};
     }
    }
   }
@@ -2690,6 +2692,10 @@ const [libraryLevel,setLibraryLevel]=useState("전체"),[libraryCategory,setLibr
  const [swapType, setSwapType] = useState("temp_swap"); // "temp_swap" | "perm_swap" | "sub"
  const [dailyPrintDate, setDailyPrintDate] = useState(() => day());
  const [dailyPrintGrade, setDailyPrintGrade] = useState("all"); // "all" | "1" | "2" | "3"
+ const [swapPartnerTeacher, setSwapPartnerTeacher] = useState("");
+ const [swapPartnerDate, setSwapPartnerDate] = useState(() => day());
+ const [swapPartnerDay, setSwapPartnerDay] = useState("화");
+ const [swapPartnerPeriod, setSwapPartnerPeriod] = useState(1);
  const swapRequestsRef = useRef([]);
  const appliedPermSwapsRef = useRef(new Set());
  const sharedVersionRef = useRef(0);
@@ -5718,6 +5724,9 @@ const notify=t=>setToast(t);
     const incomingSwaps = Array.isArray(shared.swapRequests) ? shared.swapRequests : [];
     swapRequestsRef.current = incomingSwaps;
     setSwapRequests(incomingSwaps);
+    if(shared.schoolName && shared.schoolName !== activeSchoolName){
+     return;
+    }
     if(isText(shared.notice)){
      schoolNoticeRef.current = shared.notice;
      setSchoolNotice(shared.notice);
@@ -5778,22 +5787,45 @@ const notify=t=>setToast(t);
       }
      });
 
+     const resolveStudentsFromMasterByLabel = (clsNameLabel, fallbackStudents) => {
+      if(Array.isArray(fallbackStudents) && fallbackStudents.length > 0) return fallbackStudents;
+      const labelStr = String(clsNameLabel || "");
+      const deptMatch = labelStr.match(/([1-3]-\d+)/) || labelStr.match(/([1-3])학년\s*(\d+)반/);
+      const deptKey = deptMatch ? (deptMatch[2] ? `${deptMatch[1]}-${deptMatch[2]}` : deptMatch[1]) : "";
+      const cleanSubj = labelStr.replace(/^\[[^\]]+\]\s*/,"").replace(/^[1-3]-\d+\s+/,"").replace(/\([^)]*\)/g,"").trim();
+      const matchedEl = matchElectiveRosterFromMaster(cleanSubj, deptKey, nextMasterData?.electiveRosters);
+      if(matchedEl && Array.isArray(matchedEl.students) && matchedEl.students.length > 0) return matchedEl.students;
+      if(deptKey) return getHomeroomStudentsFromMaster(deptKey, nextMasterData, d);
+      return [];
+     };
+
      const nextTimetable = {...(d.timetable||{})};
      incomingSwaps.filter(req => req.status === "approved").forEach(req => {
-      if(req.fromClassId && req.fromClassId !== "homeroom" && Array.isArray(req.fromStudents) && req.fromStudents.length){
-       if(!classMap.has(req.fromClassId)) classMap.set(req.fromClassId, {id:req.fromClassId, name:req.fromClassName||req.fromClassId, subject:"교체·보강", room:"", students:req.fromStudents});
+      const rFrom = cleanMasterLabel(req.fromTeacher);
+      const rTo = cleanMasterLabel(req.toTeacher);
+      const restoredFromStudents = resolveStudentsFromMasterByLabel(req.fromClassName, req.fromStudents);
+      const restoredToStudents = resolveStudentsFromMasterByLabel(req.toClassName, req.toStudents);
+      const effFromClassId = req.fromClassId || (req.fromClassName ? `cls-swap-from-${req.id}` : "");
+      const effToClassId = req.toClassId || (req.toClassName ? `cls-swap-to-${req.id}` : "");
+
+      if(effFromClassId && effFromClassId !== "homeroom" && restoredFromStudents.length){
+       req.fromClassId = effFromClassId;
+       req.fromStudents = restoredFromStudents;
+       if(!classMap.has(effFromClassId)) classMap.set(effFromClassId, {id:effFromClassId, name:req.fromClassName||effFromClassId, subject:"교체·보강", room:"", students:restoredFromStudents});
       }
-      if(req.toClassId && req.toClassId !== "homeroom" && Array.isArray(req.toStudents) && req.toStudents.length){
-       if(!classMap.has(req.toClassId)) classMap.set(req.toClassId, {id:req.toClassId, name:req.toClassName||req.toClassId, subject:"교체·보강", room:"", students:req.toStudents});
+      if(effToClassId && effToClassId !== "homeroom" && restoredToStudents.length){
+       req.toClassId = effToClassId;
+       req.toStudents = restoredToStudents;
+       if(!classMap.has(effToClassId)) classMap.set(effToClassId, {id:effToClassId, name:req.toClassName||effToClassId, subject:"교체·보강", room:"", students:restoredToStudents});
       }
       if(req.type === "perm_swap" && myName && !appliedPermSwapsRef.current.has(req.id)){
-       if(req.fromTeacher === myName){
-        nextTimetable[`${req.fromDay}-${req.fromPeriod}`] = req.toClassId || "";
-        if(req.toDay && req.toPeriod) nextTimetable[`${req.toDay}-${req.toPeriod}`] = req.fromClassId || "";
+       if(rFrom === myName){
+        nextTimetable[`${req.fromDay}-${req.fromPeriod}`] = effToClassId || "";
+        if(req.toDay && req.toPeriod) nextTimetable[`${req.toDay}-${req.toPeriod}`] = effFromClassId || "";
         appliedPermSwapsRef.current.add(req.id);
-       } else if(req.toTeacher === myName){
-        if(req.toDay && req.toPeriod) nextTimetable[`${req.toDay}-${req.toPeriod}`] = req.fromClassId || "";
-        nextTimetable[`${req.fromDay}-${req.fromPeriod}`] = req.toClassId || "";
+       } else if(rTo === myName){
+        if(req.toDay && req.toPeriod) nextTimetable[`${req.toDay}-${req.toPeriod}`] = effFromClassId || "";
+        nextTimetable[`${req.fromDay}-${req.fromPeriod}`] = effToClassId || "";
         appliedPermSwapsRef.current.add(req.id);
        }
       }
@@ -7351,6 +7383,7 @@ exp에는 정답 이유와 학습 목표·일반화 연결을 설명하고 사�
   }catch(e){setCloudError(e.message);}finally{setCloudBusy(false);}
  }
  async function syncTick(){
+  if(currentUser?.role==="master" && selectedSchool && selectedSchool!=="광영고등학교")return;
   const c=cloud.current;if(!c?.active||c.conflict||syncLock.current||aiLock.current)return;syncLock.current=true;
   try{
    const serialized=JSON.stringify(live.current);
@@ -7983,8 +8016,13 @@ const renderInstallModal = () => modal?.type==="install" && (
          {pageConfig.sub}
         </span>
         <span className="hidden sm:inline-block h-1 w-1 rounded-full bg-[#c5b6ec]"/>
-        <span className="hidden sm:inline truncate text-[10px] font-bold text-slate-400 leading-none">
-         {currentUser?.school || data.profile.school || "스마트 교무실"}
+        <span
+         onClick={() => { if(["master","subadmin"].includes(currentUser?.role)){ loadAccountsChannel(); setModal({type:"masterAdmin"}); } }}
+         title="학교별 독립 암호화 채널로 타 학교와 데이터가 100% 분리되어 있습니다."
+         className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-extrabold leading-none ${currentUser?.role==="master" ? "cursor-pointer border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}
+        >
+         <span>🏫 {currentUser?.role==="master" ? (selectedSchool || currentUser?.school || data.profile.school) : (currentUser?.school || data.profile.school || "광영고등학교")}</span>
+         <span className="hidden md:inline text-[9px] opacity-80">· 채널분리됨</span>
         </span>
        </div>
        <div className="mt-0.5 flex items-center gap-1.5">
@@ -8195,6 +8233,79 @@ const renderInstallModal = () => modal?.type==="install" && (
          </button>
         ))}
        </section>
+
+       {/* 오늘의 수업 교체·보강 실시간 전광판 (오늘의 교무실 홈 연동 + 원클릭 A4 시간표 인쇄) */}
+       {(()=>{
+        const todayDayName = ["일","월","화","수","목","금","토"][new Date().getDay()];
+        const myName = cleanMasterLabel(currentUser?.name || data.profile.teacher || "");
+        const todayApprovedSwaps = (swapRequests || []).filter(r =>
+         r.status === "approved" && (
+          (r.type === "temp_swap" && (r.fromDate === todayStr || r.toDate === todayStr)) ||
+          (r.type === "sub" && r.fromDate === todayStr) ||
+          (r.type === "perm_swap" && (r.fromDay === todayDayName || r.toDay === todayDayName))
+         )
+        );
+        const myTodaySwaps = todayApprovedSwaps.filter(r => cleanMasterLabel(r.fromTeacher) === myName || cleanMasterLabel(r.toTeacher) === myName);
+
+        return (
+         <section className={`${PANEL} mb-5 p-4 border-2 ${myTodaySwaps.length > 0 ? "border-amber-400 bg-amber-50/70" : "border-[#dcd3ee] bg-gradient-to-r from-[#f6f2ff] via-[#faf8fe] to-white"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+           <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-extrabold text-white shadow-2xs ${todayApprovedSwaps.length > 0 ? "bg-amber-600" : "bg-brand"}`}>
+             🔄 오늘({todayStr.slice(5)} {todayDayName}) 수업 교체·보강 전광판 ({todayApprovedSwaps.length}건)
+            </span>
+            {myTodaySwaps.length > 0 && (
+             <span className="rounded-md bg-red-600 px-2 py-0.5 text-[11px] font-extrabold text-white animate-pulse">
+              🎯 내 교체·보강 {myTodaySwaps.length}건 포함!
+             </span>
+            )}
+            <span className="text-xs text-slate-600 truncate">
+             {todayApprovedSwaps.length > 0
+              ? "오늘 승인된 수업 교체·보강 내역이 일일 시간표와 출석부에 자동 반영되어 있습니다."
+              : "오늘 등록된 일시 수업 교체·보강 변동 내역이 없습니다 (정규 시간표대로 운영)."}
+            </span>
+           </div>
+           <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            <Button
+             primary
+             className="!min-h-[34px] !px-3 !py-1 !text-xs"
+             onClick={() => print(buildDailySchoolTimetablePrintHTML(todayStr, "all", data, swapRequests))}
+            >
+             <Monitor className="h-3.5 w-3.5"/>🖨️ 오늘 전교 시간표 A4 인쇄
+            </Button>
+            <Button
+             className="!min-h-[34px] !px-2.5 !py-1 !text-xs"
+             onClick={() => { setDailyPrintDate(todayStr); setClassTab("🔄 수업교체·보강"); go("출결·제출물 관리"); }}
+            >
+             교체·보강 신청/관리 →
+            </Button>
+           </div>
+          </div>
+          {todayApprovedSwaps.length > 0 && (
+           <div className="mt-3 flex flex-wrap gap-2 border-t border-[#dcd3ee]/80 pt-2.5">
+            {todayApprovedSwaps.map(r => {
+             const isMine = cleanMasterLabel(r.fromTeacher) === myName || cleanMasterLabel(r.toTeacher) === myName;
+             return (
+              <div
+               key={r.id}
+               onClick={() => { setDailyPrintDate(todayStr); setClassTab("🔄 수업교체·보강"); go("출결·제출물 관리"); }}
+               className={`cursor-pointer rounded-xl border px-3 py-1.5 text-xs transition-all ${isMine ? "border-amber-500 bg-white font-extrabold text-ink shadow-xs ring-2 ring-amber-300/60" : "border-[#dcd3ee] bg-white/90 font-semibold text-slate-700 hover:border-brand"}`}
+              >
+               <span className="mr-1.5 rounded bg-[#eee9fa] px-1.5 py-0.5 text-[10px] font-extrabold text-brand">
+                {r.type==="sub" ? "🤝보강" : r.type==="perm_swap" ? "👑영구교체" : "⏱️일시교체"}
+               </span>
+               {r.type === "sub"
+                ? `${r.fromPeriod}교시 [${r.fromClassName}] : ${r.fromTeacher} ➔ ${r.toTeacher} 선생님 보강`
+                : `${r.fromPeriod}교시 [${r.fromClassName}](${r.fromTeacher}) ↔ ${r.toPeriod}교시 [${r.toClassName||"상대수업"}](${r.toTeacher})`}
+               {r.proxyConfirmed && <span className="ml-1 text-[10px] font-bold text-emerald-700">(사전승인)</span>}
+              </div>
+             );
+            })}
+           </div>
+          )}
+         </section>
+        );
+       })()}
 
        {/* 1단 영역: [좌측] 통합 캘린더 ↔ [우측] 주간 시간표 + 출결 바로가기 (좌우 세로 높이 100% 맞춤) */}
        <div className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
@@ -11035,23 +11146,45 @@ const renderInstallModal = () => modal?.type==="install" && (
     })()}
 
     {classTab==="🔄 수업교체·보강" && (()=>{
-     const myName = (currentUser?.name || data.profile.teacher || "").trim();
-     const currentSchoolName = currentUser?.school || data.profile.school || "광영고등학교";
+     const myName = cleanMasterLabel((currentUser?.name || data.profile.teacher || "").trim());
+     const currentSchoolName = currentUser?.role === "master"
+      ? (selectedSchool || currentUser?.school || data.profile.school || "광영고등학교")
+      : (currentUser?.school || data.profile.school || "광영고등학교");
+
      const registeredTeacherSet = new Set(
       accountsList
        .filter(a => a.approved && (!a.school || a.school === currentSchoolName))
        .map(a => cleanMasterLabel(a.name))
        .filter(Boolean)
      );
+
+     const masterTeachersMap = data.schoolMasterData?.teachers || {};
      const allTeachers = Array.from(new Set([
-      ...accountsList.map(a => cleanMasterLabel(a.name)).filter(Boolean),
-      ...Object.keys(data.schoolMasterData?.teachers || {}).map(cleanMasterLabel).filter(Boolean)
+      ...accountsList.filter(a => !a.school || a.school === currentSchoolName).map(a => cleanMasterLabel(a.name)).filter(Boolean),
+      ...Object.keys(masterTeachersMap).map(cleanMasterLabel).filter(Boolean)
      ])).sort((a,b) => a.localeCompare(b, "ko"));
+
      const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
-       (r.type !== "perm_swap" && r.toTeacher === myName) ||
+       (r.type !== "perm_swap" && cleanMasterLabel(r.toTeacher) === myName) ||
        (r.type === "perm_swap" && ["master","subadmin"].includes(currentUser?.role))
       ));
-     const mySentOrRelated = swapRequests.filter(r => r.fromTeacher === myName || r.toTeacher === myName || currentUser?.role === "master").slice().reverse();
+     const mySentOrRelated = swapRequests.filter(r => cleanMasterLabel(r.fromTeacher) === myName || cleanMasterLabel(r.toTeacher) === myName || ["master","subadmin"].includes(currentUser?.role)).slice().reverse();
+
+     // ★ 미가입 교사 포함: 선택한 상대 선생님의 마스터 시간표 실시간 자동 조회
+     const dayNamesArr = ["일","월","화","수","목","금","토"];
+     const partnerLookupDay = swapType === "perm_swap"
+      ? swapPartnerDay
+      : (validDate(swapPartnerDate) ? dayNamesArr[new Date(swapPartnerDate+"T12:00:00Z").getUTCDay()] : "월");
+     const cleanPartnerName = cleanMasterLabel(swapPartnerTeacher);
+     const isPartnerRegistered = cleanPartnerName ? registeredTeacherSet.has(cleanPartnerName) : true;
+     const partnerAllSlots = cleanPartnerName ? (masterTeachersMap[cleanPartnerName] || []) : [];
+     const partnerDaySlots = partnerAllSlots
+      .filter(s => s.day === partnerLookupDay)
+      .sort((a,b) => Number(a.period) - Number(b.period));
+     const partnerTargetSlot = partnerDaySlots.find(s => Number(s.period) === Number(swapPartnerPeriod));
+     const partnerAutoClassLabel = partnerTargetSlot
+      ? `${partnerTargetSlot.room ? partnerTargetSlot.room + " " : ""}${partnerTargetSlot.subject}`
+      : "";
 
      return <div className="space-y-6">
       {/* 0. 관리자·교사 공용: 그날그날 수업 교체가 반영된 학년별/전체 일일 시간표 A4 맞춤 출력 센터 */}
@@ -11059,7 +11192,7 @@ const renderInstallModal = () => modal?.type==="install" && (
        <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
          <div className="flex flex-wrap items-center gap-2">
-          <Tag>🖨️ 관리자 · 교무실 일일 점검용 A4 1장 맞춤 조판</Tag>
+          <Tag>🖨️ [{currentSchoolName}] 관리자 · 교무실 일일 점검용 A4 1장 맞춤 조판</Tag>
           <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-900">
            🔄 당일 승인된 일시교체 · 보강 · 영구교체 실시간 자동 반영
           </span>
@@ -11102,7 +11235,7 @@ const renderInstallModal = () => modal?.type==="install" && (
          </Button>
          <Button
           onClick={() => downloadHWPX(
-           `${data.profile.school||"학교"}_${dailyPrintDate}_${dailyPrintGrade==="all"?"전학년":`${dailyPrintGrade}학년`}_일일시간표`,
+           `${currentSchoolName}_${dailyPrintDate}_${dailyPrintGrade==="all"?"전학년":`${dailyPrintGrade}학년`}_일일시간표`,
            buildDailySchoolTimetablePrintHTML(dailyPrintDate, dailyPrintGrade, data, swapRequests)
           )}
          >
@@ -11120,7 +11253,7 @@ const renderInstallModal = () => modal?.type==="install" && (
          <h2 className="mt-1.5 text-base font-bold text-ink">🔔 내게 도착한 수업 교체 · 동교과 보강 승인 요청 ({incomingForMe.length}건)</h2>
          <p className="mt-0.5 text-xs text-slate-600">
           • <strong>일시 교체 / 동교과 보강</strong>은 마스터 승인 없이 요청받은 선생님이 <strong>[승인]</strong>을 누르면 즉시 해당 시간의 수업반과 출결 권한이 연동됩니다.<br/>
-          • <strong>영구 교체</strong>는 마스터(관리자)가 승인하면 두 선생님의 정규 시간표에 정식 반영됩니다.
+          • <strong>미가입 선생님과 교체·보강</strong>할 때는 신청 시 <strong>사전 구두 승인 확인 질문</strong>에 [확인]을 누르면 즉시 반영되며, 추후 해당 선생님이 가입하면 이름 기준으로 이력이 자동 연결됩니다.
          </p>
         </div>
         <Button onClick={()=>pullSharedSchoolRoster(false)}>🔄 요청 목록 새로고침</Button>
@@ -11206,7 +11339,7 @@ const renderInstallModal = () => modal?.type==="install" && (
        const targetGroup = freeSubjFilter === "자동(내 교과)" ? myInfo.group : freeSubjFilter;
 
        const freeTeachersList = teacherNames
-        .filter(tName => tName !== myName)
+        .filter(tName => cleanMasterLabel(tName) !== myName)
         .map(tName => {
          const slots = masterTeachers[tName] || [];
          const busyNow = slots.find(s => s.day === freeDay && Number(s.period) === Number(freePeriod));
@@ -11215,7 +11348,7 @@ const renderInstallModal = () => modal?.type==="install" && (
          const sameExactSubj = info.subjects.some(sb => myInfo.subjects.includes(sb));
          const sameGroup = info.group === targetGroup && targetGroup !== "기타교과";
          return {
-          name: tName,
+          name: cleanMasterLabel(tName),
           busyNow,
           dayCount: daySlots.length,
           daySlots,
@@ -11239,6 +11372,7 @@ const renderInstallModal = () => modal?.type==="install" && (
         : [];
 
        const pickTeacherForForm = (tName) => {
+        setSwapPartnerTeacher(tName);
         const toInput = document.getElementById("sw-to-t");
         if(toInput){ toInput.value = tName; toInput.focus(); }
         const pInput = document.getElementById("sw-from-period");
@@ -11288,7 +11422,7 @@ const renderInstallModal = () => modal?.type==="install" && (
               <div>
                <div className="font-extrabold">
                 {t.sameExactSubj && <span className="mr-1 rounded bg-amber-300 px-1.5 py-0.2 text-[10px] font-black text-slate-900">동일과목</span>}
-                {t.name} 선생님
+                {t.name} 선생님 {!registeredTeacherSet.has(t.name) && <span className="text-[10px] opacity-75">(미가입)</span>}
                </div>
                <div className="text-[10.5px] opacity-80">{t.subjectsText} · {freeDay}요일 수업 {t.dayCount}시간</div>
               </div>
@@ -11351,11 +11485,11 @@ const renderInstallModal = () => modal?.type==="install" && (
        ) : null;
       })()}
 
-      {/* 2. 새 수업 교체 / 동교과 보강 신청 폼 */}
+      {/* 2. 새 수업 교체 / 동교과 보강 신청 폼 (미가입 교사 시간표 자동 조회 포함) */}
       <section className={`${PANEL} p-5 space-y-5`}>
        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
         <div>
-         <Tag>수업 교체 · 보강 신청</Tag>
+         <Tag>수업 교체 · 보강 신청 (미가입 교사 시간표 자동 조회 연동)</Tag>
          <h3 className="mt-1.5 text-base font-bold text-ink">✏️ 수업 교체 (일시·영구) 및 동교과 보강 요청하기</h3>
         </div>
         <div className="flex flex-wrap gap-1.5 rounded-xl bg-paper p-1 border border-line">
@@ -11373,16 +11507,19 @@ const renderInstallModal = () => modal?.type==="install" && (
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
         const fromTeacher = cleanMasterLabel((currentUser?.name || data.profile.teacher || String(fd.get("fromTeacher")||"")).trim());
-        const toTeacher = cleanMasterLabel(String(fd.get("toTeacher")||"").trim());
+        const toTeacher = cleanMasterLabel(String(fd.get("toTeacher")||swapPartnerTeacher||"").trim());
         if(!fromTeacher || !toTeacher){notify("요청 교사와 상대(또는 보강) 교사 성함을 모두 입력해 주세요.");return;}
 
         const fromClassId = String(fd.get("fromClassId")||"homeroom");
         const fromInfo = resolveClassInfo(fromClassId, data);
 
-        const toDateVal = String(fd.get("toDate")||day());
-        const toPeriodVal = Number(fd.get("toPeriod")) || 1;
-        const toDayNames = ["일","월","화","수","목","금","토"];
-        const toDateDayName = validDate(toDateVal) ? toDayNames[new Date(toDateVal+"T12:00:00Z").getUTCDay()] : String(fd.get("toDay")||"화");
+        const toDateVal = String(fd.get("toDate")||swapPartnerDate||day());
+        const toPeriodVal = Number(fd.get("toPeriod")||swapPartnerPeriod) || 1;
+        const toDayVal = String(fd.get("toDay")||swapPartnerDay||"화");
+        const toDateDayName = swapType === "perm_swap"
+         ? toDayVal
+         : (validDate(toDateVal) ? dayNamesArr[new Date(toDateVal+"T12:00:00Z").getUTCDay()] : toDayVal);
+
         const masterTargetSlot = (data.schoolMasterData?.teachers?.[toTeacher] || []).find(
          s => s.day === toDateDayName && Number(s.period) === Number(toPeriodVal)
         );
@@ -11392,19 +11529,40 @@ const renderInstallModal = () => modal?.type==="install" && (
 
         const toClassIdRaw = String(fd.get("toClassId")||"");
         const toClassNameInput = String(fd.get("toClassNameText")||"").trim();
+
+        // 마스터 데이터에서 상대 교사 수업반 학생 명단까지 자동 매칭 (미가입 교사여도 출석부 학생 명단이 즉시 연결되도록!)
+        let autoPartnerStudents = [];
+        let autoPartnerClassId = "";
+        if(masterTargetSlot){
+         const cleanSubj = String(masterTargetSlot.subject||"").trim();
+         const roomStr = String(masterTargetSlot.room||"").trim();
+         const matchedEl = matchElectiveRosterFromMaster(cleanSubj, roomStr, data.schoolMasterData?.electiveRosters);
+         if(matchedEl && Array.isArray(matchedEl.students) && matchedEl.students.length > 0){
+          autoPartnerStudents = matchedEl.students;
+          autoPartnerClassId = `cls-el-${normalizeSubjKey(cleanSubj)}-${roomStr||"all"}`;
+         } else if(/^[1-3]-\d+$/.test(roomStr)){
+          autoPartnerStudents = getHomeroomStudentsFromMaster(roomStr, data.schoolMasterData, data);
+          autoPartnerClassId = `cls-hr-${roomStr}-${normalizeSubjKey(cleanSubj)}`;
+         }
+        }
+
         const toInfo = toClassIdRaw
          ? resolveClassInfo(toClassIdRaw, data)
-         : {id:"", name: toClassNameInput || autoTargetLabel, students:[]};
+         : {
+            id: autoPartnerClassId,
+            name: toClassNameInput || autoTargetLabel,
+            students: autoPartnerStudents
+           };
 
         // ★ 미가입 교사 여부 확인 및 사전 구두 승인 질문을 통한 즉시 승인 처리
-        const isPartnerRegistered = registeredTeacherSet.has(toTeacher);
+        const partnerJoined = registeredTeacherSet.has(toTeacher);
         let initialStatus = "pending";
         let approvedByLabel = "";
         let approvedAtVal = "";
         let proxyConfirmedFlag = false;
 
-        if(swapType !== "perm_swap" && !isPartnerRegistered){
-         const askMsg = `[${toTeacher} 선생님]은 아직 스마트 교무실 계정에 가입(승인)되지 않은 상태입니다.\n\n수업 교체를 희망하시는 [${toTeacher} 선생님]께 사전(구두·메신저·전화 등)에 수업 교체·보강 승인을 구하셨습니까?\n\n• [확인]을 누르시면 계정 없는 선생님을 대신해 즉시 승인 처리되어 오늘 시간표와 출석부에 바로 반영됩니다.\n• [취소]를 누르시면 일반 승인 대기 상태로만 등록됩니다.`;
+        if(swapType !== "perm_swap" && !partnerJoined){
+         const askMsg = `[${toTeacher} 선생님]은 아직 스마트 교무실 계정에 가입(승인)되지 않은 상태입니다.\n\n수업 교체를 희망하시는 [${toTeacher} 선생님]께 사전(구두·메신저·전화 등)에 수업 교체·보강 승인을 구하셨습니까?\n\n• [확인]을 누르시면 계정 없는 선생님을 대신해 즉시 승인 처리되어 오늘 시간표와 출석부에 바로 반영됩니다. (추후 ${toTeacher} 선생님이 가입하시면 이름 기준으로 이력이 자동 연결됩니다!)\n• [취소]를 누르시면 일반 승인 대기 상태로만 등록됩니다.`;
          if(confirm(askMsg)){
           initialStatus = "approved";
           approvedByLabel = `${fromTeacher}(${toTeacher} 사전승인확인)`;
@@ -11429,7 +11587,7 @@ const renderInstallModal = () => modal?.type==="install" && (
          fromClassName: fromInfo.name,
          fromStudents: fromInfo.students,
          toDate: toDateVal,
-         toDay: String(fd.get("toDay")||"화"),
+         toDay: toDayVal,
          toPeriod: toPeriodVal,
          toClassId: toInfo.id,
          toClassName: toInfo.name,
@@ -11440,6 +11598,7 @@ const renderInstallModal = () => modal?.type==="install" && (
 
         await createSwapOrSubRequest(newReq);
         e.currentTarget.reset();
+        setSwapPartnerTeacher("");
         notify(
          swapType === "perm_swap"
           ? "영구 수업 교체 요청이 등록되었습니다. 마스터(관리자)가 승인하면 정규 시간표에 정식 반영됩니다."
@@ -11453,9 +11612,18 @@ const renderInstallModal = () => modal?.type==="install" && (
           <input id="sw-from-t" name="fromTeacher" required defaultValue={currentUser?.name || data.profile.teacher || ""} placeholder="본인 성함 입력" className={INPUT}/>
          </Field>
          <Field label={swapType==="sub"?"보강을 맡아주실 선생님 성함":"교체할 상대 선생님 성함"} id="sw-to-t">
-          <input id="sw-to-t" name="toTeacher" required list="teacher-names-list" placeholder="예: 김교사 (정확한 성함 입력)" className={INPUT+" font-bold text-brand"}/>
+          <input
+           id="sw-to-t"
+           name="toTeacher"
+           required
+           list="teacher-names-list"
+           value={swapPartnerTeacher}
+           onChange={e => setSwapPartnerTeacher(e.target.value)}
+           placeholder="성함 선택 또는 입력 (시간표 자동조회)"
+           className={INPUT+" font-bold text-brand"}
+          />
           <datalist id="teacher-names-list">
-           {allTeachers.map(t=><option key={t} value={t}/>)}
+           {allTeachers.map(t=><option key={t} value={t}>{registeredTeacherSet.has(t) ? `${t} (가입됨)` : `${t} (미가입·마스터시간표 연동)`}</option>)}
           </datalist>
          </Field>
 
@@ -11467,16 +11635,99 @@ const renderInstallModal = () => modal?.type==="install" && (
           </Field>
          ) : (
           <Field label={swapType==="sub"?"보강이 필요한 수업 날짜":"내 수업 날짜"} id="sw-from-date">
-           <input id="sw-from-date" name="fromDate" type="date" required defaultValue={attDate} className={INPUT}/>
+           <input
+            id="sw-from-date"
+            name="fromDate"
+            type="date"
+            required
+            defaultValue={attDate}
+            onChange={e => { if(swapType === "sub") setSwapPartnerDate(e.target.value); }}
+            className={INPUT}
+           />
           </Field>
          )}
 
          <Field label={swapType==="sub"?"보강 교시":"내 수업 교시"} id="sw-from-period">
-          <select id="sw-from-period" name="fromPeriod" defaultValue={activePeriod} className={INPUT}>
+          <select
+           id="sw-from-period"
+           name="fromPeriod"
+           defaultValue={activePeriod}
+           onChange={e => { if(swapType === "sub") setSwapPartnerPeriod(Number(e.target.value)); }}
+           className={INPUT}
+          >
            {[1,2,3,4,5,6,7].map(p=><option key={p} value={p}>{p}교시</option>)}
           </select>
          </Field>
         </div>
+
+        {/* ★ 상대(보강) 선생님 마스터 시간표 실시간 자동 조회 박스 (미가입 교사도 완벽 작동!) */}
+        {cleanPartnerName && (
+         <div className={`rounded-xl border-2 p-3.5 space-y-2.5 text-xs ${!isPartnerRegistered ? "border-amber-400 bg-amber-50/70" : "border-[#dcd3ee] bg-[#faf8fe]"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+           <div className="flex flex-wrap items-center gap-2">
+            <span className="font-extrabold text-sm text-ink">📅 [{cleanPartnerName} 선생님] {partnerLookupDay}요일 시간표 자동 조회</span>
+            {isPartnerRegistered ? (
+             <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">✓ 계정 가입 교사 (1:1 알림 발송)</span>
+            ) : (
+             <span className="rounded-md bg-amber-600 px-2 py-0.5 text-[11px] font-extrabold text-white">
+              ⚠️ 미가입 교사 (신청 시 사전 구두승인 확인 질문으로 즉시 반영 가능 · 추후 가입 시 자동 연결)
+             </span>
+            )}
+           </div>
+           {partnerTargetSlot ? (
+            <span className="font-extrabold text-brand">
+             🎯 선택한 {swapPartnerPeriod}교시 수업: [{partnerAutoClassLabel}]
+            </span>
+           ) : (
+            <span className="font-extrabold text-emerald-700">
+             ✓ 선택한 {swapPartnerPeriod}교시는 공강(수업 없음)입니다!
+            </span>
+           )}
+          </div>
+
+          {partnerAllSlots.length > 0 ? (
+           <div className="grid grid-cols-7 gap-1.5 pt-1">
+            {[1,2,3,4,5,6,7].map(pNum => {
+             const sl = partnerDaySlots.find(s => Number(s.period) === pNum);
+             const isSelectedP = Number(swapPartnerPeriod) === pNum;
+             return (
+              <button
+               type="button"
+               key={pNum}
+               onClick={() => {
+                setSwapPartnerPeriod(pNum);
+                const toPSelect = document.getElementById("sw-to-period");
+                if(toPSelect) toPSelect.value = String(pNum);
+                const txtInput = document.getElementById("sw-to-cls-txt");
+                if(txtInput && sl) txtInput.value = `${sl.room ? sl.room + " " : ""}${sl.subject}`;
+               }}
+               className={`rounded-lg border p-2 text-center transition-all ${
+                isSelectedP
+                 ? "border-brand bg-brand text-white font-extrabold shadow-xs"
+                 : sl
+                 ? "border-[#dcd3ee] bg-white text-ink hover:border-brand"
+                 : "border-dashed border-slate-300 bg-white/60 text-slate-400 hover:border-brand"
+               }`}
+               title="클릭하면 해당 교시와 과목명이 아래 신청 칸에 자동 입력됩니다"
+              >
+               <div className="text-[10px] font-bold opacity-80">{pNum}교시</div>
+               {sl ? (
+                <>
+                 <div className="mt-0.5 truncate font-extrabold text-[11px]">{String(sl.subject).replace(/\(원\)/g,"")}</div>
+                 <div className={`text-[10px] ${isSelectedP ? "text-amber-200" : "text-brand"}`}>{sl.room || "-"}</div>
+                </>
+               ) : (
+                <div className="mt-1 text-[10px]">공강</div>
+               )}
+              </button>
+             );
+            })}
+           </div>
+          ) : (
+           <p className="text-slate-500">마스터 시간표에서 [{cleanPartnerName}] 선생님의 시간표 데이터를 찾지 못했습니다. 아래 칸에 상대 수업반 이름을 직접 적어주세요.</p>
+          )}
+         </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
          <Field label={swapType==="sub"?"보강 선생님이 대신 들어가실 내 수업반":"내 수업반 선택 (학생 명단 자동 연동)"} id="sw-from-cls">
@@ -11489,40 +11740,73 @@ const renderInstallModal = () => modal?.type==="install" && (
          {swapType !== "sub" && <>
           {swapType === "perm_swap" ? (
            <Field label="바꿀 상대 수업 요일" id="sw-to-day">
-            <select id="sw-to-day" name="toDay" defaultValue="화" className={INPUT}>
+            <select
+             id="sw-to-day"
+             name="toDay"
+             value={swapPartnerDay}
+             onChange={e => setSwapPartnerDay(e.target.value)}
+             className={INPUT}
+            >
              {["월","화","수","목","금"].map(d=><option key={d} value={d}>{d}요일</option>)}
             </select>
            </Field>
           ) : (
            <Field label="바꿀 상대 선생님 수업 날짜" id="sw-to-date">
-            <input id="sw-to-date" name="toDate" type="date" required defaultValue={attDate} className={INPUT}/>
+            <input
+             id="sw-to-date"
+             name="toDate"
+             type="date"
+             required
+             value={swapPartnerDate}
+             onChange={e => setSwapPartnerDate(e.target.value)}
+             className={INPUT}
+            />
            </Field>
           )}
           <Field label="바꿀 상대 선생님 수업 교시" id="sw-to-period">
-           <select id="sw-to-period" name="toPeriod" defaultValue={activePeriod} className={INPUT}>
+           <select
+            id="sw-to-period"
+            name="toPeriod"
+            value={swapPartnerPeriod}
+            onChange={e => setSwapPartnerPeriod(Number(e.target.value))}
+            className={INPUT}
+           >
             {[1,2,3,4,5,6,7].map(p=><option key={p} value={p}>{p}교시</option>)}
            </select>
           </Field>
           <Field label="내가 대신 들어갈 상대 수업반 선택 (공용 분반 목록)" id="sw-to-cls">
            <select id="sw-to-cls" name="toClassId" defaultValue="" className={INPUT}>
-            <option value="">상대 선생님이 승인 시 직접 선택 (또는 아래 입력)</option>
+            <option value="">{partnerAutoClassLabel ? `✨ 마스터 시간표 자동매칭: ${partnerAutoClassLabel}` : "상대 선생님이 승인 시 직접 선택 (또는 우측 입력)"}</option>
             {(data.subjectClasses||[]).filter(c=>c.id!=="homeroom").map(c=><option key={c.id} value={c.id}>📘 {c.name} ({(c.students||[]).length}명)</option>)}
            </select>
           </Field>
-          <Field label="상대 수업반 이름 메모 (선택)" id="sw-to-cls-txt">
-           <input id="sw-to-cls-txt" name="toClassNameText" placeholder="예: 1-2 공통국어" className={INPUT}/>
+          <Field label="상대 수업반 과목·학반 (마스터 시간표 자동완성)" id="sw-to-cls-txt">
+           <input
+            id="sw-to-cls-txt"
+            name="toClassNameText"
+            key={`auto-cls-${cleanPartnerName}-${partnerLookupDay}-${swapPartnerPeriod}`}
+            defaultValue={partnerAutoClassLabel}
+            placeholder="예: 1-2 공통국어 (위 교시 클릭 시 자동입력)"
+            className={INPUT+" font-bold text-brand"}
+           />
           </Field>
          </>}
 
          <Field label="사유 및 전달 메모 (출장·병가·진도 안내 등)" id="sw-reason">
-          <input id="sw-reason" name="reason" placeholder="예: 관내 출장으로 인한 3교시 동교과 보강 부탁드립니다." className={INPUT}/>
+          <input id="sw-reason" name="reason" placeholder="예: 관내 출장으로 인한 3교시 수업 교체 부탁드립니다." className={INPUT}/>
          </Field>
         </div>
 
         <div className="flex justify-end pt-2">
          <button type="submit" className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-brand px-5 text-sm font-bold text-white hover:bg-[#54419f] shadow-sm">
           <Send className="h-4 w-4"/>
-          {swapType==="temp_swap"?"상대 선생님께 일시 교체 승인 요청 보내기":swapType==="sub"?"보강 선생님께 동교과 보강 승인 요청 보내기":"마스터(관리자)에게 영구 교체 승인 요청 보내기"}
+          {swapType==="perm_swap"
+           ? "마스터(관리자)에게 영구 교체 승인 요청 보내기"
+           : (cleanPartnerName && !isPartnerRegistered)
+           ? `✅ [${cleanPartnerName} 선생님(미가입)] 사전 승인 확인 후 즉시 반영하기`
+           : swapType==="temp_swap"
+           ? "상대 선생님께 일시 교체 승인 요청 보내기"
+           : "보강 선생님께 동교과 보강 승인 요청 보내기"}
          </button>
         </div>
        </form>
@@ -11550,7 +11834,12 @@ const renderInstallModal = () => modal?.type==="install" && (
              <td className="p-2.5 text-center font-bold">
               {r.type==="temp_swap"?"⏱️ 일시교체":r.type==="sub"?"🤝 동교과보강":"👑 영구교체"}
              </td>
-             <td className="p-2.5 font-medium">{r.fromTeacher} → <strong className="text-brand">{r.toTeacher}</strong></td>
+             <td className="p-2.5 font-medium">
+              {r.fromTeacher} → <strong className="text-brand">{r.toTeacher}</strong>
+              {!registeredTeacherSet.has(cleanMasterLabel(r.toTeacher)) && (
+               <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">미가입(가입시 자동연결)</span>
+              )}
+             </td>
              <td className="p-2.5">
               {r.type==="temp_swap" && `${r.fromDate} ${r.fromPeriod}교시(${r.fromClassName}) ↔ ${r.toDate} ${r.toPeriod}교시(${r.toClassName||"상대수업"})`}
               {r.type==="perm_swap" && `${r.fromDay}요일 ${r.fromPeriod}교시(${r.fromClassName}) ↔ ${r.toDay}요일 ${r.toPeriod}교시(${r.toClassName||"상대수업"})`}
@@ -11564,7 +11853,7 @@ const renderInstallModal = () => modal?.type==="install" && (
              </td>
              <td className="p-2.5 text-center">
                <div className="flex flex-wrap items-center justify-center gap-1.5">
-                {r.status === "pending" && r.type !== "perm_swap" && (r.fromTeacher === myName || ["master","subadmin"].includes(currentUser?.role)) && (
+                {r.status === "pending" && r.type !== "perm_swap" && (cleanMasterLabel(r.fromTeacher) === myName || ["master","subadmin"].includes(currentUser?.role)) && (
                  <button
                   type="button"
                   className="rounded-md border border-emerald-600 bg-emerald-50 px-2 py-1 text-[11px] font-extrabold text-emerald-800 hover:bg-emerald-600 hover:text-white"
@@ -11606,7 +11895,7 @@ const renderInstallModal = () => modal?.type==="install" && (
                 >
                  HWPX
                 </button>
-                {(r.fromTeacher===myName || currentUser?.role==="master") && (
+                {(cleanMasterLabel(r.fromTeacher)===myName || ["master","subadmin"].includes(currentUser?.role)) && (
                  <button type="button" className="px-1.5 py-1 text-xs text-red-600 hover:underline" onClick={async()=>{
                   const next = swapRequests.filter(x=>x.id!==r.id);
                   swapRequestsRef.current = next; setSwapRequests(next);
@@ -14718,24 +15007,49 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
 
   return <Dialog title={isSuperMaster ? `👑 총괄 마스터 콘솔 (전체 학교 세팅 · 계정 승인 · 현재 학교: ${managedSchool})` : `🏫 [${managedSchool}] 마스터 관리 콘솔 (전교 데이터 일괄 세팅 · 계정 승인)`} wide onClose={()=>setModal(null)}>
    <div className="space-y-6">
-    {/* 총괄 마스터 전용: 다중 고등학교 개설 및 관리 대상 학교 전환 바 */}
+    {/* 총괄 마스터 전용: 다중 고등학교 개설 및 관리 대상 학교 전환 바 (확인 팝업 & 완벽 채널 격리) */}
     {isSuperMaster && (
-     <section className="rounded-xl border-2 border-slate-800 bg-slate-900 p-4 text-white flex flex-wrap items-center justify-between gap-3">
-      <div className="space-y-0.5">
-       <span className="inline-block rounded bg-brand px-2 py-0.5 text-[10px] font-bold">총괄 마스터 전용 · 다중 고등학교 관리</span>
-       <h3 className="text-sm font-bold">현재 관리·세팅 중인 학교 채널: [{managedSchool}]</h3>
+     <section className="rounded-xl border-2 border-amber-400 bg-slate-900 p-4 text-white flex flex-wrap items-center justify-between gap-3 shadow-md">
+      <div className="space-y-1">
+       <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-block rounded bg-brand px-2 py-0.5 text-[10px] font-bold">총괄 마스터 전용 · 다중 고등학교 독립 채널</span>
+        <span className="inline-block rounded bg-emerald-600 px-2 py-0.5 text-[10px] font-extrabold text-white">
+         🔒 타 학교 데이터 혼입 원천 차단됨
+        </span>
+       </div>
+       <h3 className="text-sm font-extrabold">
+        현재 관리·세팅 중인 대상 학교: <span className="text-amber-300 underline underline-offset-4">[{managedSchool}]</span>
+       </h3>
+       <p className="text-[11px] text-slate-300">
+        지금 업로드하시는 엑셀(명단·시간표·장소), 학사력, 한 줄 공지는 오직 <strong>[{managedSchool}] 전용 암호화 채널</strong>에만 반영됩니다.
+       </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
        <select
-        className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-bold text-white"
+        aria-label="관리 대상 고등학교 선택"
+        className="rounded-lg border-2 border-amber-400 bg-slate-800 px-3 py-2 text-xs font-extrabold text-amber-300 focus:outline-none"
         value={managedSchool}
         onChange={async e => {
          const nextSc = e.target.value;
+         if(!nextSc || nextSc === managedSchool) return;
+         const ok = confirm(`⚠️ [${managedSchool}]에서 [${nextSc}]로 관리 채널을 변경하시겠습니까?\n\n• [확인]을 누르시면 화면의 이전 학교 데이터를 모두 비우고 [${nextSc}] 전용 채널 데이터를 불러옵니다.\n• 이후 업로드하는 모든 엑셀·시간표·공지는 [${nextSc}]에만 저장됩니다.`);
+         if(!ok){
+          e.target.value = managedSchool;
+          return;
+         }
          setSelectedSchool(nextSc);
          setSelectedMasterTeacher("");
          autoAppliedKeyRef.current = "";
          localStorage.setItem("gyomusil-selected-school", nextSc);
          setCurrentUser(prev => prev ? { ...prev, school: nextSc } : prev);
+
+         // 이전 학교의 수업교체·보강 및 공지사항 잔상 즉시 초기화
+         swapRequestsRef.current = [];
+         setSwapRequests([]);
+         schoolNoticeRef.current = "";
+         setSchoolNotice("");
+         appliedPermSwapsRef.current = new Set();
+
          const emptyMaster = {
           teachers: {}, classTimetables: {}, homeroomRosters: {}, electiveRosters: {},
           homeroomTeachers: {}, electiveRooms: {}, effectiveDate: day(), versions: [],
@@ -14747,24 +15061,34 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
           students: [],
           subjectClasses: [{ id: "homeroom", name: "우리반 (담임 기본 명렬)", subject: "학급", students: [] }],
           timetable: {},
+          classAttendance: {},
           schoolMasterData: emptyMaster,
           electiveMatrix: { headers: ["A타임","B타임","C타임","D타임"], rows: [], periodSlotMap: {} }
          }));
          sharedVersionRef.current = 0;
          await pullSharedSchoolRoster(false, nextSc);
-         notify(`[${nextSc}] 관리 채널로 전환했습니다.`);
+         notify(`✅ [${nextSc}] 전용 관리 채널로 안전하게 전환되었습니다!`);
         }}
        >
-        {schoolsList.map(sc => <option key={sc} value={sc}>{sc}</option>)}
+        {schoolsList.map(sc => <option key={sc} value={sc}>🏫 {sc}</option>)}
        </select>
        <Button className="!bg-brand !text-white !border-0" onClick={async()=>{
         const newSc = prompt("새로 개설할 고등학교 정식 명칭을 입력하세요 (예: 순천고등학교):");
         if(newSc && newSc.trim()){
          const sClean = newSc.trim();
+         if(!confirm(`새로운 고등학교 [${sClean}] 전용 채널을 개설하고 즉시 [${sClean}] 관리 채널로 이동하시겠습니까?`)) return;
          const nextSchools = Array.from(new Set([...schoolsList, sClean]));
          await saveAccountsChannel(accountsList, undefined, nextSchools);
          setSelectedSchool(sClean);
-         notify(`[${sClean}] 공용 채널이 새롭게 개설되었습니다!`);
+         localStorage.setItem("gyomusil-selected-school", sClean);
+         setCurrentUser(prev => prev ? { ...prev, school: sClean } : prev);
+         swapRequestsRef.current = [];
+         setSwapRequests([]);
+         schoolNoticeRef.current = "";
+         setSchoolNotice("");
+         sharedVersionRef.current = 0;
+         await pullSharedSchoolRoster(true, sClean);
+         notify(`🎉 [${sClean}] 공용 채널이 새롭게 개설되어 전환되었습니다!`);
         }
        }}>+ 새 고등학교 개설</Button>
       </div>
