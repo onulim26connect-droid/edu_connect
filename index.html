@@ -1382,6 +1382,264 @@ function buildSwapConfirmHTML(reqOrDoc, schoolName="광영고등학교"){
  '</section></body></html>';
 }
 
+function buildDailySchoolTimetablePrintHTML(targetDate, gradeFilter="all", d=initialData(), swapRequestsList=[]){
+ const dayNames = ["일","월","화","수","목","금","토"];
+ const dt = validDate(targetDate) ? new Date(targetDate+"T12:00:00Z") : new Date();
+ const dayName = dayNames[dt.getUTCDay()];
+ const schoolName = d.profile?.school || "광영고등학교";
+ const master = d.schoolMasterData || {};
+ const rawClassTt = master.classTimetables || {};
+ const teachersTt = master.teachers || {};
+ const cfg = master.schoolConfig || {g1:7, g2:7, g3:7};
+
+ const extractDept = (str) => {
+  if(!str) return "";
+  const m1 = String(str).match(/([1-3])-(\d+)/);
+  if(m1) return `${m1[1]}-${m1[2]}`;
+  const m2 = String(str).match(/([1-3])학년\s*(\d+)반/);
+  if(m2) return `${m2[1]}-${m2[2]}`;
+  return "";
+ };
+
+ const extractSubj = (str) => {
+  if(!str) return "";
+  return String(str)
+   .replace(/^\[[^\]]+\]\s*/, "")
+   .replace(/^[1-3]-\d+\s+/, "")
+   .replace(/^[1-3]학년\s*\d+반\s*\([1-3]-\d+\)\s*-?\s*/, "")
+   .replace(/\([1-3]-\d+\)/g, "")
+   .replace(/\(담임반\)/g, "")
+   .trim() || String(str).trim();
+ };
+
+ const deptSet = new Set(Object.keys(rawClassTt).filter(k => /^[1-3]-\d+$/.test(k)));
+ Object.values(teachersTt).forEach(slots => {
+  (slots || []).forEach(sl => {
+   const dp = extractDept(sl.room);
+   if(dp) deptSet.add(dp);
+  });
+ });
+ if(deptSet.size === 0){
+  [1,2,3].forEach(g => {
+   const cnt = Number(cfg[`g${g}`]) || 7;
+   for(let c=1; c<=cnt; c++) deptSet.add(`${g}-${c}`);
+  });
+ }
+
+ const allDepts = Array.from(deptSet).sort((a,b) => a.localeCompare(b, "ko", {numeric:true}));
+ const targetGrades = gradeFilter === "all" ? [1,2,3] : [Number(gradeFilter)];
+
+ const baseGrid = {};
+ allDepts.forEach(dp => { baseGrid[dp] = {}; });
+
+ Object.entries(rawClassTt).forEach(([dp, map]) => {
+  if(!baseGrid[dp]) baseGrid[dp] = {};
+  for(let p=1; p<=7; p++){
+   const cell = map?.[`${dayName}-${p}`];
+   if(cell && cell.subject){
+    baseGrid[dp][p] = { subject: cell.subject, teacher: cell.teacher || "", room: cell.room || dp, changed: false, badge: "" };
+   }
+  }
+ });
+
+ Object.entries(teachersTt).forEach(([tName, slots]) => {
+  (slots || []).forEach(sl => {
+   if(sl.day === dayName && sl.period >= 1 && sl.period <= 7){
+    const dp = extractDept(sl.room);
+    if(dp && baseGrid[dp] && !baseGrid[dp][sl.period]){
+     baseGrid[dp][sl.period] = { subject: sl.subject, teacher: tName, room: sl.room || dp, changed: false, badge: "" };
+    }
+   }
+  });
+ });
+
+ const findTeacherSlotDept = (tName, pNum, fallbackClassName) => {
+  const fromName = extractDept(fallbackClassName);
+  if(fromName) return fromName;
+  const slots = teachersTt[tName] || [];
+  const found = slots.find(s => s.day === dayName && Number(s.period) === Number(pNum));
+  if(found){
+   const fromRoom = extractDept(found.room);
+   if(fromRoom) return fromRoom;
+  }
+  for(const dp of allDepts){
+   if(baseGrid[dp]?.[pNum]?.teacher === tName) return dp;
+  }
+  return "";
+ };
+
+ const approvedSwaps = (swapRequestsList || []).filter(r => r.status === "approved");
+ const todayLogLines = [];
+
+ approvedSwaps.forEach(r => {
+  if(r.type === "perm_swap"){
+   if(r.fromDay === dayName || r.toDay === dayName){
+    const dp1 = findTeacherSlotDept(r.fromTeacher, r.fromPeriod, r.fromClassName);
+    const dp2 = findTeacherSlotDept(r.toTeacher, r.toPeriod, r.toClassName);
+    if(r.fromDay === dayName && dp1 && baseGrid[dp1]){
+     baseGrid[dp1][r.fromPeriod] = {
+      subject: extractSubj(r.toClassName) || baseGrid[dp1][r.fromPeriod]?.subject || "교체수업",
+      teacher: r.toTeacher,
+      room: dp1,
+      changed: true,
+      badge: "영구교체"
+     };
+    }
+    if(r.toDay === dayName && dp2 && baseGrid[dp2]){
+     baseGrid[dp2][r.toPeriod] = {
+      subject: extractSubj(r.fromClassName) || baseGrid[dp2][r.toPeriod]?.subject || "교체수업",
+      teacher: r.fromTeacher,
+      room: dp2,
+      changed: true,
+      badge: "영구교체"
+     };
+    }
+   }
+  } else if(r.type === "temp_swap"){
+   if(r.fromDate === targetDate){
+    const dpFrom = findTeacherSlotDept(r.fromTeacher, r.fromPeriod, r.fromClassName);
+    const dpTo = findTeacherSlotDept(r.toTeacher, r.toPeriod, r.toClassName) || dpFrom;
+    if(dpFrom && baseGrid[dpFrom]){
+     const origSubj = baseGrid[dpFrom][r.fromPeriod]?.subject || extractSubj(r.fromClassName);
+     const newSubj = extractSubj(r.toClassName) || origSubj;
+     baseGrid[dpFrom][r.fromPeriod] = {
+      subject: newSubj,
+      teacher: r.toTeacher,
+      room: dpFrom,
+      changed: true,
+      badge: `교체(${r.fromTeacher}→${r.toTeacher})`
+     };
+     todayLogLines.push(`[${dpFrom}반 ${r.fromPeriod}교시] ${origSubj}(${r.fromTeacher}) ➔ ${newSubj}(${r.toTeacher}) 일시교체${r.proxyConfirmed ? " [구두승인확인]" : ""}`);
+    }
+    if(r.toDate === targetDate && dpTo && baseGrid[dpTo]){
+     const origToSubj = baseGrid[dpTo][r.toPeriod]?.subject || extractSubj(r.toClassName);
+     const newToSubj = extractSubj(r.fromClassName) || origToSubj;
+     baseGrid[dpTo][r.toPeriod] = {
+      subject: newToSubj,
+      teacher: r.fromTeacher,
+      room: dpTo,
+      changed: true,
+      badge: `교체(${r.toTeacher}→${r.fromTeacher})`
+     };
+     if(dpTo !== dpFrom || Number(r.toPeriod) !== Number(r.fromPeriod)){
+      todayLogLines.push(`[${dpTo}반 ${r.toPeriod}교시] ${origToSubj}(${r.toTeacher}) ➔ ${newToSubj}(${r.fromTeacher}) 일시교체${r.proxyConfirmed ? " [구두승인확인]" : ""}`);
+     }
+    }
+   } else if(r.toDate === targetDate){
+    const dpTo = findTeacherSlotDept(r.toTeacher, r.toPeriod, r.toClassName) || findTeacherSlotDept(r.fromTeacher, r.fromPeriod, r.fromClassName);
+    if(dpTo && baseGrid[dpTo]){
+     const origToSubj = baseGrid[dpTo][r.toPeriod]?.subject || extractSubj(r.toClassName);
+     const newToSubj = extractSubj(r.fromClassName) || origToSubj;
+     baseGrid[dpTo][r.toPeriod] = {
+      subject: newToSubj,
+      teacher: r.fromTeacher,
+      room: dpTo,
+      changed: true,
+      badge: `교체(${r.toTeacher}→${r.fromTeacher})`
+     };
+     todayLogLines.push(`[${dpTo}반 ${r.toPeriod}교시] ${origToSubj}(${r.toTeacher}) ➔ ${newToSubj}(${r.fromTeacher}) 일시교체${r.proxyConfirmed ? " [구두승인확인]" : ""}`);
+    }
+   }
+  } else if(r.type === "sub"){
+   if(r.fromDate === targetDate){
+    const dp = findTeacherSlotDept(r.fromTeacher, r.fromPeriod, r.fromClassName);
+    if(dp && baseGrid[dp]){
+     const origSubj = baseGrid[dp][r.fromPeriod]?.subject || extractSubj(r.fromClassName) || "보강";
+     baseGrid[dp][r.fromPeriod] = {
+      subject: origSubj,
+      teacher: r.toTeacher,
+      room: dp,
+      changed: true,
+      badge: `보강(원:${r.fromTeacher})`
+     };
+     todayLogLines.push(`[${dp}반 ${r.fromPeriod}교시] ${origSubj}(${r.fromTeacher}) ➔ ${r.toTeacher} 선생님 보강${r.proxyConfirmed ? " [구두승인확인]" : ""}`);
+    }
+   }
+  }
+ });
+
+ const isAllGrades = targetGrades.length > 1;
+ const fontSizeTh = isAllGrades ? "8.5pt" : "10.5pt";
+ const fontSizeTd = isAllGrades ? "8pt" : "10pt";
+ const cellPad = isAllGrades ? "3px 2px" : "7px 4px";
+ const rowHeight = isAllGrades ? "28px" : "56px";
+
+ const gradeTablesHtml = targetGrades.map(gNum => {
+  const gDepts = allDepts.filter(dp => dp.startsWith(`${gNum}-`));
+  if(gDepts.length === 0) return "";
+  return `
+   <div class="grade-block">
+    <div class="grade-title">■ ${gNum}학년 일일 수업 시간표 (${esc(dateLabel(targetDate))} ${esc(dayName)}요일)</div>
+    <table class="tt-table">
+     <thead>
+      <tr>
+       <th style="width:52px;">학반</th>
+       ${[1,2,3,4,5,6,7].map(p => `<th>${p}교시<br><span style="font-size:7pt;font-weight:400;">(${FIXED_PERIOD_TIMES[p-1]?.start||""})</span></th>`).join("")}
+      </tr>
+     </thead>
+     <tbody>
+      ${gDepts.map(dp => `
+       <tr>
+        <th class="dept-cell">${esc(dp)}반</th>
+        ${[1,2,3,4,5,6,7].map(p => {
+         const info = baseGrid[dp]?.[p];
+         if(!info || !info.subject) return `<td class="empty-cell">-</td>`;
+         const cleanS = String(info.subject).replace(/\(원\)/g,"").trim();
+         return `<td class="${info.changed ? "changed-cell" : ""}">
+          <div class="subj-name">${esc(cleanS)}</div>
+          <div class="teacher-name">${esc(info.teacher || "")}</div>
+          ${info.changed ? `<div class="swap-badge">🔄 ${esc(info.badge)}</div>` : ""}
+         </td>`;
+        }).join("")}
+       </tr>
+      `).join("")}
+     </tbody>
+    </table>
+   </div>
+  `;
+ }).join("");
+
+ const gradeTitleLabel = gradeFilter === "all" ? "1·2·3학년 전체" : `${gradeFilter}학년`;
+
+ return '<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>'+esc(`${schoolName}_${targetDate}_${gradeTitleLabel}_일일시간표`)+'</title><style>'+
+ '@page{size:A4 landscape;margin:8mm 10mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#eef0f5;font:9.5pt/1.35 -apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:#111}body{padding:14px 0}'+
+ '.page-a4{width:277mm;min-height:190mm;margin:0 auto;background:#fff;padding:8mm 10mm;box-shadow:0 4px 18px rgba(0,0,0,.08);display:flex;flex-direction:column;justify-content:space-between}'+
+ '.header-bar{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:6px;margin-bottom:8px}'+
+ '.header-title{font-size:'+(isAllGrades?'15pt':'18pt')+';font-weight:900;letter-spacing:-0.3px}'+
+ '.header-meta{font-size:9pt;text-align:right;color:#333;font-weight:700}'+
+ '.grade-block{margin-bottom:'+(isAllGrades?'6px':'12px')+'}'+
+ '.grade-title{font-size:'+(isAllGrades?'9.5pt':'11.5pt')+';font-weight:800;margin-bottom:3px;color:#262635}'+
+ 'table.tt-table{width:100%;border-collapse:collapse;table-layout:fixed;border:1.5px solid #000}'+
+ 'table.tt-table th,table.tt-table td{border:1px solid #333;padding:'+cellPad+';text-align:center;vertical-align:middle;word-break:keep-all}'+
+ 'table.tt-table thead th{background:#f0ecfa;font-size:'+fontSizeTh+';font-weight:800;color:#262635}'+
+ 'table.tt-table .dept-cell{background:#faf8fe;font-weight:900;font-size:'+fontSizeTh+'}'+
+ 'table.tt-table td{height:'+rowHeight+';font-size:'+fontSizeTd+'}'+
+ '.subj-name{font-weight:800;color:#111;line-height:1.2}'+
+ '.teacher-name{font-size:'+(isAllGrades?'7.5pt':'9pt')+';color:#444;margin-top:1px}'+
+ '.changed-cell{background:#fff8db !important;border:1.8px solid #d97706 !important}'+
+ '.swap-badge{display:inline-block;margin-top:2px;padding:1px 4px;border-radius:3px;background:#fef3c7;color:#b45309;font-size:'+(isAllGrades?'6.8pt':'8pt')+';font-weight:800}'+
+ '.empty-cell{color:#bbb}'+
+ '.swap-summary{margin-top:6px;border:1px solid #444;background:#fafafa;padding:5px 8px;font-size:8pt;line-height:1.45}'+
+ '.toolbar{max-width:277mm;margin:0 auto 12px auto;padding:10px 14px;background:#fff;border:1px solid #dcd3ee;border-radius:10px;display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap}'+
+ '.toolbar button{background:#6550bb;border:0;color:#fff;border-radius:6px;padding:9px 16px;cursor:pointer;font-weight:700}'+
+ '@media print{html,body{background:#fff;padding:0}.page-a4{width:100%;min-height:auto;margin:0;padding:0;box-shadow:none}.toolbar{display:none}}'+
+ '</style></head><body>'+
+ '<div class="toolbar"><button onclick="window.print()">🖨️ A4 가로 1장 맞춤 인쇄 / PDF 저장</button><span style="font-size:9pt;color:#555">인쇄 설정에서 [용지: A4], [방향: 가로(Landscape)], [배경 그래픽: 체크]로 출력하시면 교체·보강 음영까지 선명하게 1장에 출력됩니다.</span></div>'+
+ '<section class="page-a4">'+
+ '<div>'+
+ '<div class="header-bar">'+
+ '<div><div style="font-size:8.5pt;font-weight:700;color:#6550bb;">'+esc(schoolName)+' · 당일 수업 교체·보강 실시간 반영본</div><div class="header-title">'+esc(dateLabel(targetDate))+' ('+esc(dayName)+'요일) '+esc(gradeTitleLabel)+' 일일 수업 시간표</div></div>'+
+ '<div class="header-meta">출력일시: '+esc(new Date().toLocaleString("ko-KR"))+'<br>🔄 음영 표시 칸 = 당일 수업교체 또는 보강 적용 교시 ('+todayLogLines.length+'건)</div>'+
+ '</div>'+
+ (gradeTablesHtml || '<p style="padding:30px;text-align:center;color:#666;">등록된 학급별/교사별 시간표 데이터가 없습니다. 마스터 콘솔에서 시간표 엑셀을 먼저 업로드해 주세요.</p>')+
+ '</div>'+
+ '<div class="swap-summary">'+
+ '<strong>📌 당일 수업 교체 · 보강 반영 내역 ('+esc(targetDate)+'):</strong> '+
+ (todayLogLines.length ? todayLogLines.map(esc).join(" &nbsp;|&nbsp; ") : "당일 일시 교체·보강 변경 내역 없음 (정규 시간표 동일)")+
+ '</div>'+
+ '</section></body></html>';
+}
+
 const chk=(cond,label)=>(cond?"☑ ":"□ ")+esc(label);
 const bChk=(cond,label)=>(cond?"[ ✓ ] ":"[ &nbsp; ] ")+esc(label);
 
@@ -2430,6 +2688,8 @@ const [libraryLevel,setLibraryLevel]=useState("전체"),[libraryCategory,setLibr
  const schoolNoticeRef = useRef("");
  const [swapRequests, setSwapRequests] = useState([]);
  const [swapType, setSwapType] = useState("temp_swap"); // "temp_swap" | "perm_swap" | "sub"
+ const [dailyPrintDate, setDailyPrintDate] = useState(() => day());
+ const [dailyPrintGrade, setDailyPrintGrade] = useState("all"); // "all" | "1" | "2" | "3"
  const swapRequestsRef = useRef([]);
  const appliedPermSwapsRef = useRef(new Set());
  const sharedVersionRef = useRef(0);
@@ -3314,16 +3574,25 @@ const [templateConfig, setTemplateConfig] = useState({
   const [admStuName, setAdmStuName] = useState("");
   const [admTargetGoalId, setAdmTargetGoalId] = useState("");
 
+  const getCurrentQuarterKey = () => {
+   const now = new Date();
+   return `${now.getFullYear()}-Q${Math.floor(now.getMonth() / 3) + 1}`;
+  };
+  const getCurrentQuarterLabel = () => {
+   const now = new Date();
+   return `${now.getFullYear()}년 ${Math.floor(now.getMonth() / 3) + 1}분기`;
+  };
+
   const [adigaSyncMeta, setAdigaSyncMeta] = useState(() => {
    try {
     return JSON.parse(localStorage.getItem("gyomusil-adiga-sync-meta") || "null") || {
-     lastSyncedMonth: new Date().toISOString().slice(0, 7),
+     lastSyncedQuarter: getCurrentQuarterKey(),
      lastSyncedDate: day(),
-     sourceNote: "대입정보포털 '어디가' 50%·70%컷 최신 기준 반영됨",
+     sourceNote: `대입정보포털 '어디가' ${getCurrentQuarterLabel()} 최신 기준 반영됨`,
      remoteRows: []
     };
    } catch {
-    return { lastSyncedMonth: new Date().toISOString().slice(0, 7), lastSyncedDate: day(), sourceNote: "대입정보포털 '어디가' 최신 기준", remoteRows: [] };
+    return { lastSyncedQuarter: getCurrentQuarterKey(), lastSyncedDate: day(), sourceNote: "대입정보포털 '어디가' 분기별 최신 기준", remoteRows: [] };
    }
   });
 
@@ -6503,7 +6772,11 @@ useEffect(()=>{
   }
  },[data,loaded,currentUser?.username]);
  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(""),6000);return()=>clearTimeout(t);},[toast]);
- useEffect(()=>{setWfStep(0);setError("");},[page]);
+ useEffect(()=>{
+  setWfStep(0);
+  setError("");
+  window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+ },[page]);
  useEffect(()=>{
   if(!data.profile.homeroom){
    if(["우리반 담임실","상담 메모"].includes(page)) setPage("오늘의 교무실");
@@ -6812,27 +7085,32 @@ useEffect(()=>{
  }
 
  async function syncMonthlyAdigaCutoffs(silent = false){
-  const curMonth = new Date().toISOString().slice(0, 7);
+  const curQuarter = getCurrentQuarterKey();
+  const curQuarterLabel = getCurrentQuarterLabel();
   const targetUrl = (gasUrl || DEFAULT_GAS_URL || "").trim();
   let remoteRows = adigaSyncMeta?.remoteRows || [];
-  let noteText = `대입정보포털 '어디가' 월간 기준 자동 동기화 완료 (${curMonth})`;
+  let noteText = `대입정보포털 '어디가' ${curQuarterLabel} 기준 자동 동기화 완료`;
 
   if(targetUrl){
    try {
     const sep = targetUrl.includes("?") ? "&" : "?";
-    const res = await fetch(`${targetUrl}${sep}action=adigaCutoffs&month=${curMonth}&t=${Date.now()}`, { method: "GET", redirect: "follow" });
+    const res = await fetch(`${targetUrl}${sep}action=adigaCutoffs&quarter=${encodeURIComponent(curQuarter)}&t=${Date.now()}`, { method: "GET", redirect: "follow" });
     if(res.ok){
      const json = await res.json();
      if(Array.isArray(json?.cutoffs) && json.cutoffs.length > 0){
       remoteRows = json.cutoffs;
-      noteText = `대입정보포털 '어디가' 서버 최신 데이터(${json.cutoffs.length}개 학과) 반영 완료`;
+      noteText = `대입정보포털 '어디가' ${curQuarterLabel} 최신 데이터(${json.cutoffs.length}개 학과) 반영 완료`;
+     }
+     if(Array.isArray(json?.tracks) && json.tracks.length > 0){
+      setCustomAdigaList(json.tracks);
+      try { localStorage.setItem("gyomusil-adiga-custom", JSON.stringify(json.tracks)); } catch {}
      }
     }
    } catch {}
   }
 
   const nextMeta = {
-   lastSyncedMonth: curMonth,
+   lastSyncedQuarter: curQuarter,
    lastSyncedDate: day(),
    sourceNote: noteText,
    remoteRows
@@ -6847,9 +7125,9 @@ useEffect(()=>{
    autoFetchedRef.current = true;
    fetchFromDrive(true);
   }
-  if(loaded && page === "대입 진학 상담실"){
-   const curMonth = new Date().toISOString().slice(0, 7);
-   if(adigaSyncMeta?.lastSyncedMonth !== curMonth){
+  if(loaded && (page === "대입 진학 상담실" || page === "학점제 과목 설계실")){
+   const curQuarter = getCurrentQuarterKey();
+   if(adigaSyncMeta?.lastSyncedQuarter !== curQuarter){
     syncMonthlyAdigaCutoffs(true);
    }
   }
@@ -10758,14 +11036,82 @@ const renderInstallModal = () => modal?.type==="install" && (
 
     {classTab==="🔄 수업교체·보강" && (()=>{
      const myName = (currentUser?.name || data.profile.teacher || "").trim();
-     const allTeachers = Array.from(new Set(accountsList.map(a=>a.name).filter(Boolean)));
-const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
+     const currentSchoolName = currentUser?.school || data.profile.school || "광영고등학교";
+     const registeredTeacherSet = new Set(
+      accountsList
+       .filter(a => a.approved && (!a.school || a.school === currentSchoolName))
+       .map(a => cleanMasterLabel(a.name))
+       .filter(Boolean)
+     );
+     const allTeachers = Array.from(new Set([
+      ...accountsList.map(a => cleanMasterLabel(a.name)).filter(Boolean),
+      ...Object.keys(data.schoolMasterData?.teachers || {}).map(cleanMasterLabel).filter(Boolean)
+     ])).sort((a,b) => a.localeCompare(b, "ko"));
+     const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
        (r.type !== "perm_swap" && r.toTeacher === myName) ||
        (r.type === "perm_swap" && ["master","subadmin"].includes(currentUser?.role))
       ));
      const mySentOrRelated = swapRequests.filter(r => r.fromTeacher === myName || r.toTeacher === myName || currentUser?.role === "master").slice().reverse();
 
      return <div className="space-y-6">
+      {/* 0. 관리자·교사 공용: 그날그날 수업 교체가 반영된 학년별/전체 일일 시간표 A4 맞춤 출력 센터 */}
+      <section className={`${PANEL} p-5 border-2 border-brand bg-gradient-to-r from-[#f6f2ff] via-[#faf8fe] to-white space-y-4`}>
+       <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+         <div className="flex flex-wrap items-center gap-2">
+          <Tag>🖨️ 관리자 · 교무실 일일 점검용 A4 1장 맞춤 조판</Tag>
+          <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-900">
+           🔄 당일 승인된 일시교체 · 보강 · 영구교체 실시간 자동 반영
+          </span>
+         </div>
+         <h2 className="mt-1.5 text-base font-extrabold text-ink">📅 일일 학급 시간표 A4 출력 (1·2·3학년 전체 또는 학년별)</h2>
+         <p className="mt-0.5 text-xs text-slate-600">
+          선생님들끼리 교체·보강한 최신 내역이 노란색 음영과 배지로 표시되어, 관리자분들이 그날그날 시간표를 A4 1장으로 출력해 한눈에 확인하실 수 있습니다.
+         </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+         <input
+          type="date"
+          aria-label="출력할 일일 시간표 날짜"
+          value={dailyPrintDate}
+          onChange={e => setDailyPrintDate(e.target.value)}
+          className={INPUT + " !w-[150px] !py-1.5 font-bold text-brand bg-white"}
+         />
+         <div className="flex rounded-xl border border-[#dcd3ee] bg-white p-1">
+          {[
+           ["all", "1·2·3학년 전체 (A4 1장)"],
+           ["1", "1학년만"],
+           ["2", "2학년만"],
+           ["3", "3학년만"]
+          ].map(([gKey, gLabel]) => (
+           <button
+            type="button"
+            key={gKey}
+            onClick={() => setDailyPrintGrade(gKey)}
+            className={`rounded-lg px-2.5 py-1 text-xs font-extrabold transition-colors ${dailyPrintGrade === gKey ? "bg-brand text-white shadow-xs" : "text-slate-600 hover:bg-paper"}`}
+           >
+            {gLabel}
+           </button>
+          ))}
+         </div>
+         <Button
+          primary
+          onClick={() => print(buildDailySchoolTimetablePrintHTML(dailyPrintDate, dailyPrintGrade, data, swapRequests))}
+         >
+          <Monitor className="h-4 w-4"/>A4 일일 시간표 인쇄 / PDF
+         </Button>
+         <Button
+          onClick={() => downloadHWPX(
+           `${data.profile.school||"학교"}_${dailyPrintDate}_${dailyPrintGrade==="all"?"전학년":`${dailyPrintGrade}학년`}_일일시간표`,
+           buildDailySchoolTimetablePrintHTML(dailyPrintDate, dailyPrintGrade, data, swapRequests)
+          )}
+         >
+          <Download className="h-4 w-4"/>HWPX
+         </Button>
+        </div>
+       </div>
+      </section>
+
       {/* 1. 내게 도착한 1:1 승인 대기함 */}
       <section className={`${PANEL} p-5 border-2 border-[#dcd3ee] bg-[#faf8fe] space-y-4`}>
        <div className="flex flex-wrap items-center justify-between gap-2">
@@ -11026,20 +11372,54 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
        <form className="space-y-4" onSubmit={async e=>{
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
-        const fromTeacher = (currentUser?.name || data.profile.teacher || String(fd.get("fromTeacher")||"")).trim();
-        const toTeacher = String(fd.get("toTeacher")||"").trim();
+        const fromTeacher = cleanMasterLabel((currentUser?.name || data.profile.teacher || String(fd.get("fromTeacher")||"")).trim());
+        const toTeacher = cleanMasterLabel(String(fd.get("toTeacher")||"").trim());
         if(!fromTeacher || !toTeacher){notify("요청 교사와 상대(또는 보강) 교사 성함을 모두 입력해 주세요.");return;}
 
         const fromClassId = String(fd.get("fromClassId")||"homeroom");
         const fromInfo = resolveClassInfo(fromClassId, data);
 
+        const toDateVal = String(fd.get("toDate")||day());
+        const toPeriodVal = Number(fd.get("toPeriod")) || 1;
+        const toDayNames = ["일","월","화","수","목","금","토"];
+        const toDateDayName = validDate(toDateVal) ? toDayNames[new Date(toDateVal+"T12:00:00Z").getUTCDay()] : String(fd.get("toDay")||"화");
+        const masterTargetSlot = (data.schoolMasterData?.teachers?.[toTeacher] || []).find(
+         s => s.day === toDateDayName && Number(s.period) === Number(toPeriodVal)
+        );
+        const autoTargetLabel = masterTargetSlot
+         ? `${masterTargetSlot.room ? masterTargetSlot.room + " " : ""}${masterTargetSlot.subject}`
+         : "상대 교사 수업";
+
         const toClassIdRaw = String(fd.get("toClassId")||"");
-        const toInfo = toClassIdRaw ? resolveClassInfo(toClassIdRaw, data) : {id:"", name:String(fd.get("toClassNameText")||"상대 교사 수업"), students:[]};
+        const toClassNameInput = String(fd.get("toClassNameText")||"").trim();
+        const toInfo = toClassIdRaw
+         ? resolveClassInfo(toClassIdRaw, data)
+         : {id:"", name: toClassNameInput || autoTargetLabel, students:[]};
+
+        // ★ 미가입 교사 여부 확인 및 사전 구두 승인 질문을 통한 즉시 승인 처리
+        const isPartnerRegistered = registeredTeacherSet.has(toTeacher);
+        let initialStatus = "pending";
+        let approvedByLabel = "";
+        let approvedAtVal = "";
+        let proxyConfirmedFlag = false;
+
+        if(swapType !== "perm_swap" && !isPartnerRegistered){
+         const askMsg = `[${toTeacher} 선생님]은 아직 스마트 교무실 계정에 가입(승인)되지 않은 상태입니다.\n\n수업 교체를 희망하시는 [${toTeacher} 선생님]께 사전(구두·메신저·전화 등)에 수업 교체·보강 승인을 구하셨습니까?\n\n• [확인]을 누르시면 계정 없는 선생님을 대신해 즉시 승인 처리되어 오늘 시간표와 출석부에 바로 반영됩니다.\n• [취소]를 누르시면 일반 승인 대기 상태로만 등록됩니다.`;
+         if(confirm(askMsg)){
+          initialStatus = "approved";
+          approvedByLabel = `${fromTeacher}(${toTeacher} 사전승인확인)`;
+          approvedAtVal = new Date().toISOString();
+          proxyConfirmedFlag = true;
+         }
+        }
 
         const newReq = {
          id: "swap-" + uid(),
          type: swapType,
-         status: "pending",
+         status: initialStatus,
+         approvedBy: approvedByLabel,
+         approvedAt: approvedAtVal,
+         proxyConfirmed: proxyConfirmedFlag,
          fromTeacher,
          toTeacher,
          fromDate: String(fd.get("fromDate")||day()),
@@ -11048,9 +11428,9 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
          fromClassId: fromInfo.id,
          fromClassName: fromInfo.name,
          fromStudents: fromInfo.students,
-         toDate: String(fd.get("toDate")||day()),
+         toDate: toDateVal,
          toDay: String(fd.get("toDay")||"화"),
-         toPeriod: Number(fd.get("toPeriod")) || 1,
+         toPeriod: toPeriodVal,
          toClassId: toInfo.id,
          toClassName: toInfo.name,
          toStudents: toInfo.students,
@@ -11063,6 +11443,8 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
         notify(
          swapType === "perm_swap"
           ? "영구 수업 교체 요청이 등록되었습니다. 마스터(관리자)가 승인하면 정규 시간표에 정식 반영됩니다."
+          : proxyConfirmedFlag
+          ? `✅ [${toTeacher} 선생님] 사전 승인이 확인되어 계정 승인 대기 없이 즉시 시간표와 일일 출력물에 반영되었습니다!`
           : `[${toTeacher}] 선생님께 ${swapType==="temp_swap"?"일시 수업 교체":"동교과 보강"} 승인 요청을 보냈습니다! 상대 선생님이 승인하면 즉시 반영됩니다.`
         );
        }}>
@@ -11177,11 +11559,36 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
              <td className="p-2.5 text-slate-500">{r.reason || "-"}</td>
              <td className="p-2.5 text-center">
               <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${r.status==="approved"?"bg-emerald-100 text-emerald-800":r.status==="rejected"?"bg-red-100 text-red-700":"bg-amber-100 text-amber-800"}`}>
-               {r.status==="approved"?`✓ 승인됨 (${r.approvedBy||""})`:r.status==="rejected"?"반려됨":"승인 대기"}
+               {r.status==="approved"?`✓ 승인됨 (${r.approvedBy||""})`:r.status==="rejected"?"반려됨":(!registeredTeacherSet.has(cleanMasterLabel(r.toTeacher))?"승인 대기 (미가입 교사)":"승인 대기")}
               </span>
              </td>
              <td className="p-2.5 text-center">
                <div className="flex flex-wrap items-center justify-center gap-1.5">
+                {r.status === "pending" && r.type !== "perm_swap" && (r.fromTeacher === myName || ["master","subadmin"].includes(currentUser?.role)) && (
+                 <button
+                  type="button"
+                  className="rounded-md border border-emerald-600 bg-emerald-50 px-2 py-1 text-[11px] font-extrabold text-emerald-800 hover:bg-emerald-600 hover:text-white"
+                  onClick={async()=>{
+                   const askMsg = `수업 교체를 희망하시는 [${r.toTeacher} 선생님]께 사전(구두·전화·메신저 등)에 수업 교체·보강 승인을 구하셨습니까?\n\n[확인]을 누르시면 미가입(또는 미접속) 선생님을 대신해 즉시 승인 처리되어 시간표에 반영됩니다.`;
+                   if(!confirm(askMsg)) return;
+                   const updatedReq = {
+                    ...r,
+                    status: "approved",
+                    approvedBy: `${myName}(${r.toTeacher} 사전승인확인)`,
+                    approvedAt: new Date().toISOString(),
+                    proxyConfirmed: true
+                   };
+                   const nextList = (swapRequestsRef.current || []).map(x => x.id === r.id ? updatedReq : x);
+                   swapRequestsRef.current = nextList;
+                   setSwapRequests(nextList);
+                   await pushSharedSchoolRoster({ swapRequests: nextList });
+                   await pullSharedSchoolRoster(true);
+                   notify(`✅ [${r.toTeacher} 선생님] 사전 승인이 확인되어 시간표와 일일 출력물에 즉시 반영되었습니다!`);
+                  }}
+                 >
+                  ✅ 사전 승인 확인(즉시 반영)
+                 </button>
+                )}
                 <button
                  type="button"
                  className="rounded-md border border-brand bg-[#faf8fe] px-2 py-1 text-[11px] font-bold text-brand hover:bg-brand hover:text-white"
@@ -11650,11 +12057,30 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
      const effectiveClassId = (!data.profile.homeroom && activeClassId==="homeroom") ? (nonHrList[0]?.id || "") : activeClassId;
      const currentClassObj = (data.profile.homeroom && effectiveClassId==="homeroom") ? {id:"homeroom",name:`우리반 (${className})`,students:data.students} : (nonHrList.find(c=>c.id===effectiveClassId) || nonHrList[0] || {id:"empty",name:"교과 수업반 미선택",students:[]});
      const isHomeroom = data.profile.homeroom && currentClassObj.id==="homeroom";
+     const myDept = `${data.profile.grade}-${data.profile.classroom}`;
      const targetStudents = isHomeroom ? data.students : (currentClassObj.students||[]);
+
+     // 교과 수업반인 경우: ① 내가 직접 기록한 교시 키 + ② 공용 채널(__sharedPeriod)에서 이 수업반 학생들이 기록된 날짜_교시 키까지 모두 수집하여 누락 없이 표시
+     const collectSubjectMonthKeys = () => {
+      const keySet = new Set(Object.keys(data.classAttendance?.[effectiveClassId] || {}).filter(k => k.startsWith(attMonth)));
+      const sharedDates = data.classAttendance?.__sharedPeriod || {};
+      Object.entries(sharedDates).forEach(([dStr, pObj]) => {
+       if(!dStr.startsWith(attMonth) || !isObj(pObj)) return;
+       Object.entries(pObj).forEach(([pNum, stuMap]) => {
+        if(!isObj(stuMap)) return;
+        const hasMatch = targetStudents.some(st => {
+         const rec = stuMap[`${st.dept || myDept}|${st.name}`];
+         return rec && (!rec.subject || rec.subject === currentClassObj.name || rec.subject.includes(currentClassObj.subject || currentClassObj.name));
+        });
+        if(hasMatch) keySet.add(`${dStr}_${pNum}교시`);
+       });
+      });
+      return Array.from(keySet).sort();
+     };
 
      const rawMonthKeys = isHomeroom
       ? Object.keys(data.attendance || {}).filter(d => d.startsWith(attMonth)).sort()
-      : Object.keys(data.classAttendance?.[effectiveClassId] || {}).filter(k => k.startsWith(attMonth)).sort();
+      : collectSubjectMonthKeys();
      const defaultKey = isHomeroom ? (attDate.startsWith(attMonth) ? attDate : `${attMonth}-01`) : `${attDate.startsWith(attMonth) ? attDate : `${attMonth}-01`}_${activePeriod}교시`;
      const monthDates = rawMonthKeys.length > 0 ? rawMonthKeys : [defaultKey];
 
@@ -11676,9 +12102,17 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
      };
 
      const getCellStatus = (dKey, stuId) => {
-      return isHomeroom
-       ? (data.attendance?.[dKey]?.[stuId] || "미기록")
-       : (data.classAttendance?.[effectiveClassId]?.[dKey]?.[stuId] || "미기록");
+      if(isHomeroom) return data.attendance?.[dKey]?.[stuId] || "미기록";
+      const directVal = data.classAttendance?.[effectiveClassId]?.[dKey]?.[stuId];
+      if(directVal) return directVal;
+      const [dPart, pPart] = dKey.split("_");
+      const pNum = Number(String(pPart || "1").replace(/\D/g,"")) || 1;
+      const stuObj = targetStudents.find(s => s.id === stuId);
+      if(stuObj){
+       const sharedRec = data.classAttendance?.__sharedPeriod?.[dPart]?.[pNum]?.[`${stuObj.dept || myDept}|${stuObj.name}`];
+       if(sharedRec?.status) return sharedRec.status;
+      }
+      return "미기록";
      };
 
      const setCellStatusDirect = (dKey, stuId, nextStatus) => {
@@ -11691,6 +12125,18 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
         }
        }));
       } else {
+       const [dPart, pPart] = dKey.split("_");
+       const pNum = Number(String(pPart || "1").replace(/\D/g,"")) || 1;
+       const stuObj = targetStudents.find(s => s.id === stuId);
+       const teacherName = cleanMasterLabel(currentUser?.name || data.profile.teacher || "교과교사");
+       const nextSharedDate = { ...(data.classAttendance?.__sharedPeriod?.[dPart] || {}) };
+       const nextSharedPeriod = { ...(nextSharedDate[pNum] || {}) };
+       if(stuObj){
+        const k = `${stuObj.dept || myDept}|${stuObj.name}`;
+        if(nextStatus === "미기록") delete nextSharedPeriod[k];
+        else nextSharedPeriod[k] = { status: nextStatus, subject: currentClassObj.name, teacher: teacherName, updatedAt: new Date().toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"}) };
+        nextSharedDate[pNum] = nextSharedPeriod;
+       }
        update(d => ({
         ...d,
         classAttendance: {
@@ -11698,9 +12144,14 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
          [effectiveClassId]: {
           ...(d.classAttendance?.[effectiveClassId] || {}),
           [dKey]: { ...(d.classAttendance?.[effectiveClassId]?.[dKey] || {}), [stuId]: nextStatus }
+         },
+         __sharedPeriod: {
+          ...(d.classAttendance?.__sharedPeriod || {}),
+          [dPart]: nextSharedDate
          }
         }
        }));
+       setTimeout(() => pushSharedSchoolRoster({ sharedPeriodAtt: { [dPart]: nextSharedDate } }), 120);
       }
      };
 
@@ -11798,12 +12249,25 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
 
      return <section className={`${PANEL} p-5 space-y-5`}>
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4">
-       <div className="flex flex-wrap items-center gap-3">
+       <div className="flex flex-wrap items-center gap-2.5">
         <div>
-         <h2 className="text-base font-extrabold text-ink">🗓️ [{currentClassObj.name}] 날짜별 출석부 표 & 월간 통계</h2>
-         <p className="text-xs text-slate-500">담임·교과담임 모두 날짜별 출결 흐름과 병결·사유 메모를 한눈에 확인하고 표에서 바로 수정할 수 있습니다.</p>
+         <h2 className="text-base font-extrabold text-ink">🗓️ 수업 학급별 일별·월별 출석부 표 & 통계</h2>
+         <p className="text-xs text-slate-500">담임반뿐만 아니라 교과담임 선생님의 각 수업 학급(분반)별로 월간·일자별 출결을 조회하고 수정할 수 있습니다.</p>
         </div>
-        <input type="month" aria-label="조회할 월" value={attMonth} onChange={e=>setAttMonth(e.target.value)} className={INPUT+" !w-[165px] font-bold text-brand"}/>
+        <select
+         aria-label="월별 조회할 수업 학급 선택"
+         value={effectiveClassId}
+         onChange={e => setActiveClassId(e.target.value)}
+         className={INPUT + " !w-[230px] font-extrabold text-brand"}
+        >
+         {data.profile.homeroom && (
+          <option value="homeroom">🏫 우리반 담임 명렬 ({className})</option>
+         )}
+         {nonHrList.map(c => (
+          <option key={c.id} value={c.id}>📘 {c.name} ({(c.students||[]).length}명)</option>
+         ))}
+        </select>
+        <input type="month" aria-label="조회할 월" value={attMonth} onChange={e=>setAttMonth(e.target.value)} className={INPUT+" !w-[155px] font-bold text-brand"}/>
        </div>
 
        <div className="flex flex-wrap items-center gap-2">
@@ -11813,7 +12277,7 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
           onClick={()=>setAttViewMode("grid")}
           className={`rounded-lg px-3 py-1.5 text-xs font-extrabold transition-all ${attViewMode==="grid"?"bg-brand text-white shadow-sm":"text-slate-600 hover:bg-white"}`}
          >
-          🗓️ 날짜별 바둑판 출석부 표
+          🗓️ 날짜·교시별 출석부 표
          </button>
          <button
           type="button"
@@ -11832,8 +12296,8 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
        <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#faf8fe] border border-[#dcd3ee] px-3.5 py-2.5 text-xs">
          <div className="flex flex-wrap items-center gap-2">
-          <span className="font-bold text-brand">💡 표 사용 팁:</span>
-          <span className="text-slate-600">각 날짜 칸을 클릭하면 출결을 바로 바꿀 수 있고, 날짜 머리글을 누르면 해당일 상세 출결(병결·메모) 화면으로 이동합니다.</span>
+          <span className="font-bold text-brand">💡 [{currentClassObj.name}] 조회 팁:</span>
+          <span className="text-slate-600">각 칸을 클릭해 출결을 바로 수정할 수 있으며, 상단 날짜/교시를 누르면 해당일 일별 출결 화면으로 이동합니다. (총 {rawMonthKeys.length}회 수업 기록됨)</span>
          </div>
          <div className="flex items-center gap-2 text-[11px] font-bold">
           <span className="text-emerald-700">○ 출석</span>
@@ -11847,7 +12311,7 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
          <table className="w-full border-collapse text-xs">
           <thead>
            <tr className="border-b border-line bg-[#f4f1fa] text-[#493b7a]">
-            <th className="sticky left-0 z-10 bg-[#f4f1fa] p-2.5 text-center w-[110px] border-r border-[#dcd3ee]">번호 · 이름</th>
+            <th className="sticky left-0 z-10 bg-[#f4f1fa] p-2.5 text-center w-[125px] border-r border-[#dcd3ee]">번호 · 학반 · 이름</th>
             {monthDates.map(dKey => {
              const c = formatColHeader(dKey);
              return (
@@ -11858,10 +12322,10 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
                  setAttDate(c.dateOnly);
                  if(!isHomeroom && c.periodNum) setActivePeriod(c.periodNum);
                  setClassTab("출결");
-                 notify(`${c.dateOnly} 출결 화면으로 이동했습니다.`);
+                 notify(`${c.dateOnly} (${currentClassObj.name}) 일별 출결 화면으로 이동했습니다.`);
                 }}
                 className="hover:underline text-center leading-tight"
-                title="클릭 시 해당 날짜 출결 화면으로 이동"
+                title="클릭 시 해당 날짜 일별 출결 화면으로 이동"
                >
                 <div className="font-extrabold text-brand">{c.short}</div>
                 <div className="text-[10px] font-semibold text-slate-500">{c.sub}</div>
@@ -11870,7 +12334,7 @@ const incomingForMe = swapRequests.filter(r => r.status === "pending" && (
              );
             })}
             <th className="p-2.5 text-center min-w-[115px] bg-[#faf8fe]">월간 집계<br/><span className="text-[10px] font-normal text-slate-500">(출/지/조/결/병)</span></th>
-            <th className="p-2.5 text-left min-w-[200px] bg-[#faf8fe]">병결 · 사유 메모 기록</th>
+            <th className="p-2.5 text-left min-w-[200px] bg-[#faf8fe]">날짜·교시별 특이사항 기록</th>
            </tr>
           </thead>
           <tbody>
@@ -12050,17 +12514,38 @@ const getStatus = (stuId) => isHomeroom
         setSelectedPeriods(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p].sort((a,b)=>a-b));
        };
 
+       // 현재 선택된 수업 학급의 일별 출결 집계 (교과담임·담임 공용)
+       const activeTargetStudents = targetStudents.filter(st => !getEffectiveLeaveInfo(st));
+       const dailyCounts = { 출석: 0, 지각: 0, 조퇴: 0, 결석: 0, 인정결석: 0, 미기록: 0 };
+       activeTargetStudents.forEach(st => {
+        const stVal = getStatus(st.id) || "미기록";
+        dailyCounts[stVal] = (dailyCounts[stVal] || 0) + 1;
+       });
+
        return <section className={`${PANEL} overflow-hidden`}>
-        <div className="flex items-center justify-between gap-2 border-b border-line px-3.5 py-3 sm:px-5 sm:py-4 bg-[#faf8fe]">
-         <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3.5 py-3 sm:px-5 sm:py-4 bg-[#faf8fe]">
+         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-2.5 py-1 text-xs font-extrabold text-white shadow-2xs">
-           {classTab==="출결" ? "✅ 출결 체크" : "📁 제출물 수합"}
+           {classTab==="출결" ? `✅ [${currentClassObj.name}] 일별 출결` : "📁 제출물 수합"}
           </span>
           <span className="text-xs font-bold text-slate-600">
-           재적 {targetStudents.filter(st => !getEffectiveLeaveInfo(st)).length}명
+           재적 {activeTargetStudents.length}명
           </span>
+          {classTab==="출결" && (
+           <div className="flex flex-wrap items-center gap-1 text-[11px] font-bold">
+            <span className="rounded bg-emerald-100 px-2 py-0.5 text-emerald-800">출석 {dailyCounts.출석}</span>
+            <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-800">지각 {dailyCounts.지각} · 조퇴 {dailyCounts.조퇴}</span>
+            <span className="rounded bg-red-100 px-2 py-0.5 text-red-700">결석 {dailyCounts.결석} · 인정 {dailyCounts.인정결석}</span>
+            <span className="rounded bg-slate-200 px-2 py-0.5 text-slate-600">미기록 {dailyCounts.미기록}</span>
+           </div>
+          )}
          </div>
          <div className="flex flex-wrap items-center gap-2">
+          {classTab==="출결" && (
+           <Button className="!min-h-[36px] !px-3 !py-1.5 !text-xs border-brand bg-white text-brand font-bold" onClick={()=>{setAttMonth(attDate.slice(0,7));setClassTab("월별 출결·AI 분석");}}>
+            🗓️ 이 수업반 월별 출석부 조회 →
+           </Button>
+          )}
           {classTab==="출결"&&targetStudents.length>0&&<Button primary className="!min-h-[36px] !px-3 !py-1.5 !text-xs" onClick={markAllPresent}><Check className="h-3.5 w-3.5"/>전원 출석 일괄체크</Button>}
           {(isHomeroom || ["master","subadmin"].includes(currentUser?.role)) && (
            <Button className="!hidden md:!inline-flex" onClick={()=>setModal({type:isHomeroom?"roster":"classRoster",classId:activeClassId})}><Edit className="h-4 w-4"/>이 반 명단 등록·수정</Button>
@@ -13761,6 +14246,31 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
 
   <Note>담임교사로 설정된 경우에만 학년·반이 적용됩니다. 수업 설계실에서는 담당 수업 학급을 언제든 자유롭게 입력할 수 있습니다.</Note>
   <button type="submit" disabled={!!busy} className="min-h-[44px] w-full rounded-lg bg-brand text-sm font-bold text-white">설정 적용</button>
+  {currentUser && currentUser.username !== "admin" && (
+   <div className="border-t border-line pt-3 flex items-center justify-between text-xs text-slate-500">
+    <span>더 이상 이 계정을 사용하지 않으시나요?</span>
+    <button
+     type="button"
+     onClick={async () => {
+      if(!confirm(`정말로 [${currentUser.name}(${currentUser.username})] 계정을 영구 삭제(탈퇴)하시겠습니까?\n삭제 후에는 이 아이디로 로그인할 수 없습니다.`)) return;
+      try {
+       const { version, accounts } = await loadAccountsChannel();
+       const nextAccounts = accounts.filter(a => a.username !== currentUser.username);
+       await saveAccountsChannel(nextAccounts, version);
+       localStorage.removeItem(`${STORE}-${currentUser.username}`);
+       setModal(null);
+       handleLogout();
+       notify("계정이 정상적으로 삭제(탈퇴)되었습니다.");
+      } catch(err) {
+       notify("계정 삭제 실패: " + err.message);
+      }
+     }}
+     className="font-bold text-red-600 hover:underline"
+    >
+     🗑️ 내 계정 삭제(탈퇴)
+    </button>
+   </div>
+  )}
  </form></Dialog>}
 
  {modal?.type==="record"&&<Dialog title={{task:"할 일 등록",event:"일정 등록",note:"상담 기록",training:"연수 개설"}[modal.kind]} onClose={()=>setModal(null)}><form className="space-y-4" onSubmit={e=>{
@@ -14713,7 +15223,7 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
            {acc.role === "master" && !isSuperMaster ? (
             <span className="text-slate-400">-</span>
            ) : (
-            <div className="flex justify-center gap-1.5">
+            <div className="flex flex-wrap justify-center gap-1.5">
              <Button className="!min-h-[30px] !px-2.5 !py-1 !text-xs" primary={!acc.approved} onClick={async()=>{
               const next = accountsList.map((a,i)=>i===realIdx?{...a,approved:!a.approved}:a);
               await saveAccountsChannel(next);
@@ -14730,6 +15240,20 @@ return <div key={x.id} className={`flex min-h-[50px] items-center justify-betwee
              }}>
               비번 초기화
              </Button>
+             {acc.username !== "admin" && acc.username !== currentUser?.username && (
+              <Button
+               className="!min-h-[30px] !px-2.5 !py-1 !text-xs border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+               onClick={async()=>{
+                if(!confirm(`[${acc.school || managedSchool}] ${acc.name}(${acc.username}) 선생님의 계정을 영구 삭제할까요?`)) return;
+                const next = accountsList.filter((_, i) => i !== realIdx);
+                await saveAccountsChannel(next);
+                await syncAccountHomeroomToMaster(acc.name, false, 1, 1);
+                notify(`${acc.name}(${acc.username}) 선생님의 계정을 삭제했습니다.`);
+               }}
+              >
+               🗑️ 삭제
+              </Button>
+             )}
             </div>
            )}
           </td>
