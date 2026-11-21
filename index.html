@@ -567,6 +567,69 @@ const FIXED_PERIOD_TIMES=[
  {period:6,start:"15:00",end:"15:50"},
  {period:7,start:"16:10",end:"17:00"}
 ];
+// 대한민국 법정 공휴일 및 대체공휴일 (2026~2027 + 고정 양력 공휴일)
+const KR_PUBLIC_HOLIDAYS={
+ "2026-01-01":"신정","2026-02-16":"설날 연휴","2026-02-17":"설날","2026-02-18":"설날 연휴",
+ "2026-03-01":"3·1절","2026-03-02":"대체공휴일(3·1절)","2026-05-01":"노동절","2026-05-05":"어린이날",
+ "2026-05-24":"부처님오신날","2026-05-25":"대체공휴일(부처님오신날)","2026-06-03":"전국동시지방선거일",
+ "2026-06-06":"현충일","2026-07-17":"제헌절","2026-08-15":"광복절","2026-08-17":"대체공휴일(광복절)",
+ "2026-09-24":"추석 연휴","2026-09-25":"추석","2026-09-26":"추석 연휴",
+ "2026-10-03":"개천절","2026-10-05":"대체공휴일(개천절)","2026-10-09":"한글날","2026-12-25":"성탄절",
+ "2027-01-01":"신정","2027-02-06":"설날 연휴","2027-02-07":"설날","2027-02-08":"설날 연휴",
+ "2027-02-09":"대체공휴일(설날)","2027-03-01":"3·1절","2027-05-01":"노동절","2027-05-03":"대체공휴일(노동절)",
+ "2027-05-05":"어린이날","2027-05-13":"부처님오신날","2027-06-06":"현충일","2027-07-17":"제헌절",
+ "2027-07-19":"대체공휴일(제헌절)","2027-08-15":"광복절","2027-08-16":"대체공휴일(광복절)",
+ "2027-09-14":"추석 연휴","2027-09-15":"추석","2027-09-16":"추석 연휴",
+ "2027-10-03":"개천절","2027-10-04":"대체공휴일(개천절)","2027-10-09":"한글날",
+ "2027-10-11":"대체공휴일(한글날)","2027-12-25":"성탄절","2027-12-27":"대체공휴일(성탄절)"
+};
+const KR_SOLAR_HOLIDAYS={
+ "01-01":"신정","03-01":"3·1절","05-01":"노동절","05-05":"어린이날",
+ "06-06":"현충일","07-17":"제헌절","08-15":"광복절","10-03":"개천절","10-09":"한글날","12-25":"성탄절"
+};
+function getSchoolDayPolicy(dateStr, events=[]){
+ const allPeriods=[1,2,3,4,5,6,7];
+ if(!validDate(dateStr)) return {isClosed:false,dayType:"일반",label:"",activePeriods:allPeriods,eventTitle:""};
+ const dayEvs=(Array.isArray(events)?events:[]).filter(e=>e && e.date===dateStr && ["학교학사력","학사일정"].includes(e.category));
+ // 1순위: 총괄마스터가 학사력에 직접 지정한 특수 운영 유형(재량휴업일 / 단축수업 / 정기고사)
+ const specialEv=dayEvs.find(e=>["재량휴업일","단축수업","정기고사"].includes(e.dayType));
+ if(specialEv){
+  if(specialEv.dayType==="재량휴업일"){
+   return {isClosed:true,dayType:"재량휴업일",label:`재량휴업일 (${specialEv.title})`,activePeriods:[],eventTitle:specialEv.title};
+  }
+  const cleanP=Array.isArray(specialEv.activePeriods)
+   ? Array.from(new Set(specialEv.activePeriods.map(Number).filter(n=>n>=1&&n<=7))).sort((a,b)=>a-b)
+   : [];
+  const periods=cleanP.length ? cleanP : (specialEv.dayType==="정기고사" ? [1,2,3] : [1,2,3,4]);
+  const pTxt=periods.length ? `${periods.join("·")}교시` : "";
+  return {isClosed:false,dayType:specialEv.dayType,label:`${specialEv.dayType} (${pTxt} · ${specialEv.title})`,activePeriods:periods,eventTitle:specialEv.title};
+ }
+ // 2순위: 주말(토·일요일)
+ const dow=new Date(dateStr+"T12:00:00Z").getUTCDay();
+ if(dow===0 || dow===6){
+  return {isClosed:true,dayType:"휴업일",label:dow===0?"일요일 (주말 휴업일)":"토요일 (주말 휴업일)",activePeriods:[],eventTitle:""};
+ }
+ // 3순위: 법정 공휴일 및 대체공휴일
+ const hName=KR_PUBLIC_HOLIDAYS[dateStr] || KR_SOLAR_HOLIDAYS[dateStr.slice(5)];
+ if(hName){
+  return {isClosed:true,dayType:"휴업일",label:`법정 공휴일 (${hName})`,activePeriods:[],eventTitle:hName};
+ }
+ // 4순위: 학사력 일정명 자체가 재량휴업일·임시공휴일인 경우 자동 휴업 처리
+ const autoClosedEv=dayEvs.find(e=>/재량\s*휴업|임시\s*공휴일|대체\s*공휴일|학교\s*휴업/.test(e.title||""));
+ if(autoClosedEv){
+  return {isClosed:true,dayType:"재량휴업일",label:`휴업일 (${autoClosedEv.title})`,activePeriods:[],eventTitle:autoClosedEv.title};
+ }
+ return {isClosed:false,dayType:"일반",label:"",activePeriods:allPeriods,eventTitle:dayEvs[0]?.title||""};
+}
+function getNearestSchoolDay(fromDateStr, events=[]){
+ const base=validDate(fromDateStr) ? new Date(fromDateStr+"T12:00:00Z") : new Date();
+ for(let i=1;i<=14;i++){
+  const prev=new Date(base.getTime()-i*86400000);
+  const dStr=prev.toISOString().slice(0,10);
+  if(!getSchoolDayPolicy(dStr, events).isClosed) return dStr;
+ }
+ return day();
+}
 function initialData(){
  return {
   profile:{school:"광영고등학교",teacher:"",grade:1,classroom:6,homeroom:true},
@@ -627,7 +690,9 @@ function normalize(raw){
    date:validDate(x.date)?x.date:day(),
    time:isText(x.time)&&x.time.trim()?x.time.trim():"09:00",
    category:isText(x.category)&&x.category.trim()?x.category.trim():"학사일정",
-   effectiveDate:validDate(x.effectiveDate)?x.effectiveDate:""
+   effectiveDate:validDate(x.effectiveDate)?x.effectiveDate:"",
+   dayType:isText(x.dayType)?x.dayType:"일반",
+   activePeriods:Array.isArray(x.activePeriods)?x.activePeriods.map(Number).filter(n=>n>=1&&n<=7):[]
   }));
  }
  for(const k of ["attendance","attendanceProofs","drafts","timetable","classAttendance","electiveMatrix","schoolMasterData","seating","rolesClean"])if(isObj(raw[k]))v[k]={...v[k],...raw[k]};
@@ -2351,6 +2416,19 @@ function App(){
  const [selection,setSelection]=useState({plan:true,worksheet:true,quiz:true,slides:false}),[printAnswers,setPrintAnswers]=useState(false),[printGuide,setPrintGuide]=useState(false),[printHTML,setPrintHTML]=useState(""),[printReady,setPrintReady]=useState(false);
  const [wfStep,setWfStep]=useState(0),[query,setQuery]=useState(""),[filter,setFilter]=useState("전체"),[attDate,setAttDate]=useState(day()),[attMonth,setAttMonth]=useState(day().slice(0,7)),[attAnalysis,setAttAnalysis]=useState(""),[classTab,setClassTab]=useState("출결"),[eventDate,setEventDate]=useState(day()),[trainingId,setTrainingId]=useState("tr1"),[showRegQR,setShowRegQR]=useState(false),[customReq,setCustomReq]=useState("");
  const [tourStep,setTourStep]=useState(0),[guideMode,setGuideMode]=useState("quick"),[manualTab,setManualTab]=useState(0),[activePeriod,setActivePeriod]=useState(1),[activeClassId,setActiveClassId]=useState("homeroom"),[selectedPeriods,setSelectedPeriods]=useState([]),[dashPeriod,setDashPeriod]=useState(()=>{const now=new Date(),hm=String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");return FIXED_PERIOD_TIMES.find(p=>hm>=p.start&&hm<=p.end)?.period||1;});
+ const [liveCheckDate,setLiveCheckDate]=useState(()=>day());
+ const [liveCheckPeriod,setLiveCheckPeriod]=useState(()=>{
+  const now=new Date(), mins=now.getHours()*60+now.getMinutes();
+  const toM=str=>{const [h,m]=str.split(":").map(Number);return h*60+m;};
+  const found=FIXED_PERIOD_TIMES.find(pt=>mins>=toM(pt.start)-15&&mins<=toM(pt.end));
+  if(found) return found.period;
+  if(mins>toM("12:50")&&mins<toM("14:00")) return 5;
+  return 1;
+ });
+ const [liveCheckMode,setLiveCheckMode]=useState("auto"); // "auto" | "homeroom" | "subject"
+ const [liveCheckFilter,setLiveCheckFilter]=useState("issues"); // "all" | "issues" | "present" | "outside"
+ const [liveCheckSearch,setLiveCheckSearch]=useState("");
+ const [liveCheckClassId,setLiveCheckClassId]=useState("");
  const [hrMaxPeriod,setHrMaxPeriod]=useState(7); // 담임 출석부 표시 교시 수 (6교시 | 7교시)
  const [hrBrushStatus,setHrBrushStatus]=useState("결석"); // 담임 빠른 체크 구분: 출석|지각|조퇴|결과|결석|출석인정|미기록
  const [hrBrushSubType,setHrBrushSubType]=useState("질병"); // 담임 빠른 체크 사유: 질병|미인정|기타
@@ -3182,6 +3260,8 @@ const [templateConfig, setTemplateConfig] = useState({
   const [adminDataTab, setAdminDataTab] = useState("academic"); // academic | homeroom | timetable | rosters | rooms
   const [adminAcadMonth, setAdminAcadMonth] = useState("전체");
   const [adminAcadSearch, setAdminAcadSearch] = useState("");
+  const [newAcadDayType, setNewAcadDayType] = useState("일반"); // "일반" | "재량휴업일" | "단축수업" | "정기고사"
+  const [newAcadPeriods, setNewAcadPeriods] = useState([1,2,3,4]);
   const [adminRosterDept, setAdminRosterDept] = useState("1-1");
   const [adminRoomSearch, setAdminRoomSearch] = useState("");
   const DEFAULT_NAV_ORDER = ["나의 교무실", "수업 설계·문해력", "학급·수업 운영", "수업·업무 지원 · AI"];
@@ -3202,6 +3282,17 @@ const [templateConfig, setTemplateConfig] = useState({
     return next;
    });
   }
+  const [collapsedNavs, setCollapsedNavs] = useState(() => {
+   try { return JSON.parse(localStorage.getItem("gyomusil-nav-collapsed") || "{}"); } catch { return {}; }
+  });
+  function toggleNavCategory(title){
+   setCollapsedNavs(prev => {
+    const next = { ...prev, [title]: !prev[title] };
+    try { localStorage.setItem("gyomusil-nav-collapsed", JSON.stringify(next)); } catch {}
+    return next;
+   });
+  }
+  const [scheduleTab, setScheduleTab] = useState("일정"); // "일정" | "할 일"
 
   const [studentLeaveType, setStudentLeaveType] = useState("전출");
   const [studentLeaveDate, setStudentLeaveDate] = useState(() => day());
@@ -6316,28 +6407,29 @@ const notify=t=>setToast(t);
   }
  }
 
- // 담임 선생님의 '출석인정' 및 사유 메모를 전교 공용 채널(__sharedHomeroom)에 공유하여 교과담임도 실시간 확인·충돌 방지되도록 하는 함수
+ // 담임 선생님의 전체 출결(출석·결석·지각·조퇴·결과·출석인정) 및 사유 메모를 전교 공용 채널(__sharedHomeroom)에 공유하여 교과담임이 실시간 대조할 수 있도록 하는 함수
  function syncHomeroomApprovedToShared(dateStr, stuObj, statusVal, subTypeVal = "", memoVal = "", periodsArr = []){
   if(!stuObj || !dateStr) return;
   const cur = live.current;
   const myDept = stuObj.dept || `${cur.profile.grade}-${cur.profile.classroom}`;
   const stuKey = `${myDept}|${stuObj.name}`;
   const teacherName = cleanMasterLabel(currentUser?.name || cur.profile.teacher || "담임교사");
+  const isCleared = !statusVal || statusVal === "미기록" || statusVal === "취소";
   const isApproved = statusVal === "출석인정" || statusVal === "인정결석" || subTypeVal === "출석인정";
-  const recordObj = isApproved
+  const recordObj = isCleared
    ? {
-      status: statusVal,
-      subType: "출석인정",
-      memo: String(memoVal || "").trim(),
-      periods: Array.isArray(periodsArr) ? periodsArr : [],
-      teacher: teacherName,
-      updatedAt: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
-     }
-   : {
       status: "취소",
       subType: "",
       memo: "",
       periods: [],
+      teacher: teacherName,
+      updatedAt: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+     }
+   : {
+      status: statusVal,
+      subType: isApproved ? "출석인정" : String(subTypeVal || ""),
+      memo: String(memoVal || "").trim(),
+      periods: Array.isArray(periodsArr) ? periodsArr : [],
       teacher: teacherName,
       updatedAt: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
      };
@@ -8010,10 +8102,35 @@ useEffect(()=>{
  function go(name){
   if(aiLock.current&&!confirm("생성 요청을 취소하고 이동할까요?"))return;
   if(aiLock.current)cancel();
+  if(name==="나의 일정"){ setScheduleTab("일정"); name="일정·할 일"; }
+  else if(name==="할 일 목록"){ setScheduleTab("할 일"); name="일정·할 일"; }
   setPage(name);setDrawer(false);setQuery("");setFilter("전체");
   window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   if(name==="출결·제출물 관리"){
    setTimeout(()=>detectCurrentClass(live.current), 20);
+  }
+  if(name==="실시간 학생 상황"){
+   const curD = live.current;
+   const now = new Date();
+   const todayStr = day();
+   const dayName = ["일","월","화","수","목","금","토"][now.getDay()];
+   const curPt = getCurrentSchoolPeriod(now);
+   const policy = getSchoolDayPolicy(todayStr, curD.events);
+   const rawP = curPt ? curPt.period : 1;
+   const pNum = policy.activePeriods.length > 0 && !policy.activePeriods.includes(rawP) ? policy.activePeriods[0] : rawP;
+   setLiveCheckDate(todayStr);
+   setLiveCheckPeriod(pNum);
+   setLiveCheckMode("auto");
+   setLiveCheckFilter(curD.profile?.homeroom ? "all" : "issues");
+   const ov = getActiveSwapOverride(todayStr, pNum);
+
+   const scheduledId = ov?.classId || curD.timetable?.[`${dayName}-${pNum}`] || "";
+   if(scheduledId && scheduledId !== "homeroom") setLiveCheckClassId(scheduledId);
+   else {
+    const firstSubj = (curD.subjectClasses || []).find(c => c.id !== "homeroom")?.id || "";
+    setLiveCheckClassId(firstSubj);
+   }
+   pullSharedSchoolRoster(true);
   }
  }
  async function run(label,action){
@@ -8569,8 +8686,7 @@ exp에는 정답 이유와 학습 목표·일반화 연결을 설명하고 사�
  const baseNavMap = {
   "나의 교무실": [
    ["오늘의 교무실", Home],
-   ["할 일 목록", CheckCircle],
-   ["나의 일정", Calendar]
+   ["일정·할 일", Calendar]
   ],
   "수업 설계·문해력": [
    ["과정안·학습지", Sparkles],
@@ -8579,6 +8695,7 @@ exp에는 정답 이유와 학습 목표·일반화 연결을 설명하고 사�
   ],
   "학급·수업 운영": [
    ["출결·제출물 관리", User],
+   ["실시간 학생 상황", Eye],
    ["학생 소재 보드", Plus],
    ...(data.profile.homeroom ? [["우리반 담임실", Layers]] : []),
    ["학점제 과목 설계실", Target],
@@ -9159,36 +9276,48 @@ const renderInstallModal = () => modal?.type==="install" && (
 <div className="mt-2 flex items-center justify-between"><span className="text-sm font-semibold">{currentUser?.name || data.profile.teacher || (data.profile.homeroom?className:"교과 담당 교사")}</span><button type="button" aria-label="학교·학급 설정" className="p-1 text-slate-500" onClick={()=>{setDrawer(false);setProfileIsHomeroom(!!data.profile.homeroom);setModal({type:"profile"});}}><Settings className="h-4 w-4"/></button></div>
   </div>
 <nav aria-label="주 메뉴" className="flex-1 overflow-y-auto px-3">
-   {nav.map(([title,items], catIdx)=>(
-    <div key={title} className="mb-5">
-     <div className="mb-1.5 flex items-center justify-between px-3">
-      <p className="text-[10px] font-bold text-slate-500 whitespace-nowrap">{title}</p>
-      <div className="flex items-center gap-0.5">
+   {nav.map(([title,items], catIdx)=>{
+    const isCollapsed = !!collapsedNavs[title];
+    return (
+     <div key={title} className="mb-3">
+      <div className="mb-1 flex items-center justify-between rounded-lg px-2 py-1 hover:bg-paper/70">
        <button
         type="button"
-        disabled={catIdx === 0}
-        onClick={() => moveNavCategory(catIdx, -1)}
-        title="이 카테고리 위로 이동"
-        className="rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-paper hover:text-brand disabled:opacity-25"
-       >▲</button>
-       <button
-        type="button"
-        disabled={catIdx === nav.length - 1}
-        onClick={() => moveNavCategory(catIdx, 1)}
-        title="이 카테고리 아래로 이동"
-        className="rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-paper hover:text-brand disabled:opacity-25"
-       >▼</button>
+        onClick={() => toggleNavCategory(title)}
+        aria-expanded={!isCollapsed}
+        className="flex flex-1 items-center gap-1.5 text-left text-[11px] font-bold text-slate-500 whitespace-nowrap"
+       >
+        <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${isCollapsed ? "" : "rotate-90"}`}/>
+        <span>{title}</span>
+        {isCollapsed && <span className="text-[10px] font-semibold text-slate-400">({items.length})</span>}
+       </button>
+       <div className="flex items-center gap-0.5 shrink-0">
+        <button
+         type="button"
+         disabled={catIdx === 0}
+         onClick={() => moveNavCategory(catIdx, -1)}
+         title="위로 이동"
+         className="rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-white hover:text-brand disabled:opacity-25"
+        >▲</button>
+        <button
+         type="button"
+         disabled={catIdx === nav.length - 1}
+         onClick={() => moveNavCategory(catIdx, 1)}
+         title="아래로 이동"
+         className="rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-white hover:text-brand disabled:opacity-25"
+        >▼</button>
+       </div>
       </div>
+      {!isCollapsed && items.map(([name,Icon])=>(
+       <button type="button" key={name} aria-current={page===name?"page":undefined} onClick={()=>go(name)} className={`mb-1 flex min-h-[42px] w-full items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-left text-[13px] tracking-tight ${page===name?"bg-[#eee9fa] font-semibold text-brand":"text-slate-600 hover:bg-paper"}`}>
+        <Icon className="h-[17px] w-[17px] shrink-0"/>
+        <span className="truncate">{name}</span>
+        {["과정안·학습지","매일 문해력","기출 문제은행"].includes(name)&&<span className="ml-auto shrink-0 rounded bg-[#f0ecfa] px-1.5 py-0.5 text-[9px] font-bold text-brand">AI</span>}
+       </button>
+      ))}
      </div>
-     {items.map(([name,Icon])=>(
-      <button type="button" key={name} aria-current={page===name?"page":undefined} onClick={()=>go(name)} className={`mb-1 flex min-h-[44px] w-full items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-left text-[13px] tracking-tight ${page===name?"bg-[#eee9fa] font-semibold text-brand":"text-slate-600 hover:bg-paper"}`}>
-       <Icon className="h-[17px] w-[17px] shrink-0"/>
-       <span className="truncate">{name}</span>
-       {["과정안·학습지","매일 문해력","기출 문제은행"].includes(name)&&<span className="ml-auto shrink-0 rounded bg-[#f0ecfa] px-1.5 py-0.5 text-[9px] font-bold text-brand">AI</span>}
-      </button>
-     ))}
-    </div>
-   ))}
+    );
+   })}
   </nav>
   {/* 모바일 드로어 전용 빠른 유틸리티 바 (앱설치 · 가이드 · API 키) */}
   <div className="grid grid-cols-3 gap-1.5 border-t border-line bg-[#faf8fe] px-3 py-2.5 lg:hidden">
@@ -9224,6 +9353,7 @@ const renderInstallModal = () => modal?.type==="install" && (
      "기출 문제은행": { icon: File, sub: "QUESTION BANK" },
      "학점제 과목 설계실": { icon: Target, sub: "CREDIT COURSE NAVI" },
      "출결·제출물 관리": { icon: User, sub: "ATTENDANCE & CLASS" },
+     "실시간 학생 상황": { icon: Eye, sub: "LIVE STUDENT STATUS" },
      "학생 소재 보드": { icon: Plus, sub: "STUDENT LOCATION LIVE" },
      "우리반 담임실": { icon: Layers, sub: "HOMEROOM OFFICE" },
      "온라인 등록부": { icon: Edit, sub: "DIGITAL REGISTRY" },
@@ -9489,35 +9619,33 @@ const renderInstallModal = () => modal?.type==="install" && (
 
         return (
          <section className={`${PANEL} mb-5 p-4 border-2 ${myTodaySwaps.length > 0 ? "border-amber-400 bg-amber-50/70" : "border-[#dcd3ee] bg-gradient-to-r from-[#f6f2ff] via-[#faf8fe] to-white"}`}>
-          <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 min-w-0">
            <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full flex-1">
-            <span className={`inline-flex max-w-full items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-extrabold text-white shadow-2xs ${todayApprovedSwaps.length > 0 ? "bg-amber-600" : "bg-brand"}`}>
-             🔄 오늘({todayStr.slice(5)} {todayDayName}) 수업 교체·보강 전광판 ({todayApprovedSwaps.length}건)
+            <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-extrabold text-white ${todayApprovedSwaps.length > 0 ? "bg-amber-600" : "bg-brand"}`}>
+             오늘 교체·보강 ({todayApprovedSwaps.length}건)
             </span>
             {myTodaySwaps.length > 0 && (
-             <span className="rounded-md bg-red-600 px-2 py-0.5 text-[11px] font-extrabold text-white animate-pulse">
-              🎯 내 교체·보강 {myTodaySwaps.length}건 포함!
+             <span className="rounded-md bg-red-600 px-2 py-0.5 text-[11px] font-extrabold text-white">
+              내 수업 {myTodaySwaps.length}건 포함
              </span>
             )}
-            <span className="w-full sm:w-auto text-xs leading-5 text-slate-600 break-keep">
-             {todayApprovedSwaps.length > 0
-              ? "오늘 승인된 수업 교체·보강 내역이 일일 시간표와 출석부에 자동 반영되어 있습니다."
-              : "오늘 등록된 일시 수업 교체·보강 변동 내역이 없습니다 (정규 시간표대로 운영)."}
+            <span className="text-xs text-slate-500">
+             {todayApprovedSwaps.length > 0 ? `${todayStr.slice(5)}(${todayDayName}) 시간표 반영됨` : "정규 시간표 운영"}
             </span>
            </div>
            <div className="flex w-full sm:w-auto flex-wrap items-center gap-1.5 min-w-0 max-w-full">
             <Button
              primary
-             className="flex-1 min-w-[140px] sm:flex-none max-w-full !min-h-[36px] !px-2.5 !py-1.5 !text-xs"
+             className="flex-1 sm:flex-none !min-h-[36px] !px-3 !py-1.5 !text-xs"
              onClick={() => print(buildDailySchoolTimetablePrintHTML(todayStr, "all", data, swapRequests))}
             >
-             <Monitor className="h-3.5 w-3.5 shrink-0"/>🖨️ 오늘 전교 시간표 A4 인쇄
+             <Monitor className="h-3.5 w-3.5 shrink-0"/>오늘 시간표 인쇄
             </Button>
             <Button
-             className="flex-1 min-w-[130px] sm:flex-none max-w-full !min-h-[36px] !px-2.5 !py-1.5 !text-xs"
+             className="flex-1 sm:flex-none !min-h-[36px] !px-3 !py-1.5 !text-xs"
              onClick={() => { setDailyPrintDate(todayStr); setClassTab("🔄 수업교체·보강"); go("출결·제출물 관리"); }}
             >
-             교체·보강 신청/관리 →
+             교체·보강 관리
             </Button>
            </div>
           </div>
@@ -9594,15 +9722,40 @@ const renderInstallModal = () => modal?.type==="install" && (
                 <button
                  type="button"
                  onClick={()=>{
+                  const todayPol = getSchoolDayPolicy(todayStr, data.events);
+                  if(todayPol.isClosed){
+                   notify(`오늘은 ${todayPol.label}입니다. 휴업일에는 출결 체크를 할 수 없습니다.`);
+                   return;
+                  }
                   const nextMap = { ...todayAttMap };
+                  const teacherName = cleanMasterLabel(currentUser?.name || data.profile.teacher || "담임교사");
+                  const nowStr = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+                  const hrSharedPatch = {};
                   activeHomeroomStudents.forEach(st => {
-                   if(!nextMap[st.id] || nextMap[st.id] === "미기록") nextMap[st.id] = "출석";
+                   if(!nextMap[st.id] || nextMap[st.id] === "미기록"){
+                    nextMap[st.id] = "출석";
+                    hrSharedPatch[`${myDept}|${st.name}`] = { status: "출석", subType: "", memo: "", periods: [], teacher: teacherName, updatedAt: nowStr };
+                   }
                   });
-                  update(d=>({...d,attendance:{...d.attendance,[todayStr]:nextMap}}));
+                  update(d=>({
+                   ...d,
+                   attendance:{...d.attendance,[todayStr]:nextMap},
+                   classAttendance:{
+                    ...(d.classAttendance||{}),
+                    __sharedHomeroom:{
+                     ...(d.classAttendance?.__sharedHomeroom||{}),
+                     [todayStr]:{ ...(d.classAttendance?.__sharedHomeroom?.[todayStr]||{}), ...hrSharedPatch }
+                    }
+                   }
+                  }));
+                  if(Object.keys(hrSharedPatch).length > 0){
+                   setTimeout(() => pushSharedSchoolRoster({ sharedHomeroomAtt: { [todayStr]: hrSharedPatch } }), 120);
+                  }
                   notify("담임 조회 미기록 재학생을 전원 '출석'으로 체크했습니다. (전출·자퇴 및 기존 기록 유지)");
                  }}
                  className="rounded-md bg-brand px-2 py-0.5 text-[10.5px] font-bold text-white hover:bg-[#54419f]"
                 >⚡ 전원출석</button>
+
                 <button type="button" onClick={()=>{setAttDate(todayStr);setActiveClassId("homeroom");setClassTab("출결");go("출결·제출물 관리");}} className="text-[11px] font-semibold text-brand underline">수정 →</button>
                </div>
               </div>
@@ -10670,22 +10823,23 @@ const renderInstallModal = () => modal?.type==="install" && (
       <section className={`${PANEL} p-5`}><Tag>단계별 AI 업무</Tag><h2 className="mt-4 text-sm font-semibold">작성 현황</h2><div className="mt-3 space-y-3">{wc.stages.map(([title],i)=><p key={title} className="flex gap-2 text-xs leading-6"><CheckCircle className={`mt-1 h-4 w-4 shrink-0 ${wf.outputs[i]?"text-brand":"text-slate-300"}`}/>{title}</p>)}</div><Button className="mt-4 w-full" primary disabled={!wf.outputs.some(hasText)} onClick={()=>print(workflowHTML())}>전체 결과 인쇄 / PDF</Button><Button className="mt-2 w-full" disabled={!wf.outputs.some(hasText)} onClick={()=>downloadHWPX(`${page}_보고서`,workflowHTML())}>한글(HWPX·HWP) 다운로드</Button></section><Note>앞 단계 수정 후 다음 단계를 다시 생성해 일관성을 확인하세요. 전자결재·NEIS 등록·문자 발송은 지원하지 않습니다.</Note></aside></div>
     </>}
 
-   {page==="할 일 목록"&&(()=>{
+   {page==="일정·할 일"&&(()=>{
     const todayStr = day();
     const getDiffDays = dStr => {
      if(!validDate(dStr)) return 999;
      return Math.round((new Date(dStr+"T12:00:00Z") - new Date(todayStr+"T12:00:00Z")) / 86400000);
     };
-    const overdueOrTodayTasks = data.tasks.filter(t => !t.done && getDiffDays(t.date) <= 0).sort((a,b)=>a.date.localeCompare(b.date));
-    const dueSoon3DaysTasks = data.tasks.filter(t => !t.done && getDiffDays(t.date) >= 1 && getDiffDays(t.date) <= 3).sort((a,b)=>a.date.localeCompare(b.date));
+    const undoneCount = data.tasks.filter(t => !t.done).length;
+    const overdueOrTodayTasks = data.tasks.filter(t => !t.done && getDiffDays(t.date) <= 0);
+    const dueSoon3DaysTasks = data.tasks.filter(t => !t.done && getDiffDays(t.date) >= 1 && getDiffDays(t.date) <= 3);
     const highPriorityTasks = data.tasks.filter(t => !t.done && t.priority === "높음");
 
     const dDayBadge = t => {
      if(t.done) return <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">완료</span>;
      const diff = getDiffDays(t.date);
-     if(diff < 0) return <span className="rounded bg-red-600 px-2 py-0.5 text-[10px] font-extrabold text-white">기한지남 (D+{Math.abs(diff)})</span>;
-     if(diff === 0) return <span className="rounded bg-red-500 px-2 py-0.5 text-[10px] font-extrabold text-white animate-pulse">🚨 오늘마감 (D-Day)</span>;
-     if(diff <= 3) return <span className="rounded bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-extrabold text-amber-800">⏰ D-{diff}</span>;
+     if(diff < 0) return <span className="rounded bg-red-600 px-2 py-0.5 text-[10px] font-extrabold text-white">지연 D+{Math.abs(diff)}</span>;
+     if(diff === 0) return <span className="rounded bg-red-500 px-2 py-0.5 text-[10px] font-extrabold text-white">오늘 마감</span>;
+     if(diff <= 3) return <span className="rounded bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-extrabold text-amber-800">D-{diff}</span>;
      return <span className="rounded bg-[#f0ecfa] px-2 py-0.5 text-[10px] font-bold text-brand">D-{diff}</span>;
     };
 
@@ -10699,110 +10853,104 @@ const renderInstallModal = () => modal?.type==="install" && (
       return true;
      })
      .slice()
-     .sort((a,b) => {
-      if(!!a.done !== !!b.done) return a.done ? 1 : -1;
-      return getDiffDays(a.date) - getDiffDays(b.date);
-     });
+     .sort((a,b) => (Number(!!a.done) - Number(!!b.done)) || (getDiffDays(a.date) - getDiffDays(b.date)));
 
-    return <>
-     {/* 모바일 전용: 일정 캘린더 ↔ 할 일 목록 원터치 전환 스위치 */}
-     <div className="mb-3 grid grid-cols-2 gap-1.5 rounded-xl border border-[#dcd3ee] bg-white p-1.5 shadow-2xs lg:hidden">
-      <button type="button" onClick={()=>go("할 일 목록")} className="rounded-lg bg-brand py-2 text-xs font-extrabold text-white shadow-xs">☑️ 할 일 · 마감 관리</button>
-      <button type="button" onClick={()=>go("나의 일정")} className="rounded-lg bg-paper py-2 text-xs font-bold text-slate-600">📅 일정 캘린더만 크게 보기</button>
-     </div>
-
-     {/* 상단 제목·부연설명 없이 바로 캘린더 표시 */}
-     <section className={`${PANEL} mb-4 p-4 sm:p-5`}>
-      <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))}/>
-     </section>
-
-     {/* 할 일 메뉴 특화: 마감 임박 · 중요 미완료 요약 바 (가운데 정렬) */}
-     <section className={`${PANEL} mb-4 p-3.5 text-center`}>
-      <div className="grid grid-cols-3 gap-2">
-       <button type="button" onClick={()=>setFilter("마감임박")} className="rounded-xl border border-red-200 bg-red-50/70 py-2.5 px-2 text-center transition-all hover:border-red-400">
-        <p className="text-[11px] font-bold text-red-700">🚨 오늘·지연</p>
-        <p className="mt-0.5 text-lg font-extrabold text-red-700">{overdueOrTodayTasks.length}건</p>
+    return <div className="space-y-4">
+     {/* 상단 2탭 전환: 캘린더와 할 일을 깔끔하게 분리 */}
+     <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="grid grid-cols-2 gap-1 rounded-xl border border-[#dcd3ee] bg-white p-1 shadow-2xs w-full sm:w-auto sm:min-w-[280px]">
+       <button
+        type="button"
+        onClick={() => setScheduleTab("일정")}
+        className={`rounded-lg px-4 py-2 text-xs font-extrabold transition-all ${scheduleTab === "일정" ? "bg-brand text-white shadow-xs" : "text-slate-600 hover:bg-paper"}`}
+       >
+        캘린더 · 일정
        </button>
-       <button type="button" onClick={()=>setFilter("마감임박")} className="rounded-xl border border-amber-200 bg-amber-50/70 py-2.5 px-2 text-center transition-all hover:border-amber-400">
-        <p className="text-[11px] font-bold text-amber-800">⏰ 3일내 임박</p>
-        <p className="mt-0.5 text-lg font-extrabold text-amber-800">{dueSoon3DaysTasks.length}건</p>
-       </button>
-       <button type="button" onClick={()=>setFilter("미완료")} className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] py-2.5 px-2 text-center transition-all hover:border-brand">
-        <p className="text-[11px] font-bold text-brand">🔥 중요 미완료</p>
-        <p className="mt-0.5 text-lg font-extrabold text-brand">{highPriorityTasks.length}건</p>
+       <button
+        type="button"
+        onClick={() => setScheduleTab("할 일")}
+        className={`rounded-lg px-4 py-2 text-xs font-extrabold transition-all ${scheduleTab === "할 일" ? "bg-brand text-white shadow-xs" : "text-slate-600 hover:bg-paper"}`}
+       >
+        할 일 · 마감 ({undoneCount})
        </button>
       </div>
-     </section>
+      <div className="grid grid-cols-2 sm:flex gap-2 w-full sm:w-auto">
+       <Button className="!min-h-[38px] !px-3 !py-1.5 !text-xs" onClick={()=>setModal({type:"record",kind:"event",value:{date:eventDate}})}>
+        <Plus className="h-3.5 w-3.5"/>일정 추가
+       </Button>
+       <Button primary className="!min-h-[38px] !px-3 !py-1.5 !text-xs" onClick={()=>setModal({type:"record",kind:"task",value:{date:eventDate}})}>
+        <Plus className="h-3.5 w-3.5"/>할 일 추가
+       </Button>
+      </div>
+     </div>
 
-     {/* 필터 탭(전체/미완료/완료/선택 날짜만) 및 일정·할일 추가 통합 박스 확대·정중앙 정렬 */}
-     <section className={`${PANEL} mb-4 p-3.5 sm:p-4 flex flex-col items-center justify-center gap-3 text-center`}>
-      <div className="mx-auto grid w-full max-w-xl grid-cols-4 gap-1.5 rounded-xl border border-[#dcd3ee] bg-paper p-1.5">
-       {[["전체","전체"],["미완료","미완료"],["완료","완료"],["선택 날짜만","선택일"]].map(([fullLabel, shortLabel])=>(
-        <button
-         type="button"
-         key={fullLabel}
-         onClick={()=>setFilter(fullLabel)}
-         className={`inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-lg px-1 sm:px-3 text-xs sm:text-sm font-extrabold tracking-tight transition-all ${filter===fullLabel?"bg-brand text-white shadow-sm":"bg-white/70 text-slate-600 hover:bg-white"}`}
-        >
-         <span className="sm:hidden">{shortLabel}</span>
-         <span className="hidden sm:inline">{fullLabel}</span>
+     {scheduleTab === "일정" ? (
+      <section className={`${PANEL} p-4 sm:p-5`}>
+       <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))} onEditEvent={e=>setModal({type:"record",kind:"event",value:e})} onEditTask={t=>setModal({type:"record",kind:"task",value:t})}/>
+      </section>
+     ) : (
+      <>
+       <div className="grid grid-cols-3 gap-2">
+        <button type="button" onClick={()=>setFilter("마감임박")} className="rounded-xl border border-red-200 bg-red-50/70 py-2.5 px-2 text-center hover:border-red-400">
+         <p className="text-[11px] font-bold text-red-700">오늘·지연</p>
+         <p className="mt-0.5 text-lg font-extrabold text-red-700">{overdueOrTodayTasks.length}건</p>
         </button>
-       ))}
-      </div>
-      <div className="mx-auto grid w-full max-w-xl grid-cols-2 gap-2.5">
-       <Button className="w-full !min-h-[46px] !text-xs sm:!text-sm justify-center font-extrabold" onClick={()=>setModal({type:"record",kind:"event",value:{date:eventDate}})}>
-        <Plus className="h-4 w-4 shrink-0"/>일정 추가
-       </Button>
-       <Button primary className="w-full !min-h-[46px] !text-xs sm:!text-sm justify-center font-extrabold" onClick={()=>setModal({type:"record",kind:"task",value:{date:eventDate}})}>
-        <Plus className="h-4 w-4 shrink-0"/>할 일 추가
-       </Button>
-      </div>
-     </section>
+        <button type="button" onClick={()=>setFilter("마감임박")} className="rounded-xl border border-amber-200 bg-amber-50/70 py-2.5 px-2 text-center hover:border-amber-400">
+         <p className="text-[11px] font-bold text-amber-800">3일내 임박</p>
+         <p className="mt-0.5 text-lg font-extrabold text-amber-800">{dueSoon3DaysTasks.length}건</p>
+        </button>
+        <button type="button" onClick={()=>setFilter("미완료")} className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] py-2.5 px-2 text-center hover:border-brand">
+         <p className="text-[11px] font-bold text-brand">중요 미완료</p>
+         <p className="mt-0.5 text-lg font-extrabold text-brand">{highPriorityTasks.length}건</p>
+        </button>
+       </div>
 
-     {/* 검색창 가운데 정렬 */}
-     <div className="relative mb-4">
-      <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400"/>
-      <input aria-label="할 일 검색" className={INPUT+" pl-10 text-center sm:text-left"} value={query} onChange={e=>setQuery(e.target.value)} placeholder="할 일 검색"/>
-     </div>
-
-     {/* 마감 D-Day 배지가 포함된 할 일 목록 */}
-     <section className={PANEL}>
-      {list.length ? list.map(t => (
-       <div key={t.id} className="flex items-center justify-between gap-3 border-b border-line p-4 last:border-0">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-         <input type="checkbox" className="mt-1 h-4 w-4 shrink-0" aria-label={t.title+" 완료"} checked={!!t.done} onChange={()=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x)}))}/>
-         <div className="min-w-0 flex-1 text-left">
-          <div className="flex flex-wrap items-center gap-1.5">
-           {dDayBadge(t)}
-           {t.priority==="높음"&&!t.done&&<span className="rounded bg-red-50 border border-red-200 px-1.5 py-0.5 text-[10px] font-bold text-red-700">중요</span>}
-           <span className="text-[11px] text-slate-400">{t.category}</span>
-          </div>
-          <p className={`mt-1 break-words text-sm font-semibold ${t.done?"text-slate-400 line-through":"text-ink"}`}>{t.title}</p>
-          <p className="mt-0.5 text-[11px] text-slate-500">마감: {dateLabel(t.date)}</p>
-         </div>
+       <div className="flex flex-col sm:flex-row gap-2">
+        <div className="grid grid-cols-4 gap-1 rounded-xl border border-[#dcd3ee] bg-white p-1 sm:w-[320px] shrink-0">
+         {[["전체","전체"],["미완료","미완료"],["마감임박","임박"],["완료","완료"]].map(([k, lbl])=>(
+          <button
+           type="button"
+           key={k}
+           onClick={()=>setFilter(k)}
+           className={`rounded-lg py-1.5 text-xs font-extrabold transition-colors ${filter===k?"bg-brand text-white":"text-slate-600 hover:bg-paper"}`}
+          >
+           {lbl}
+          </button>
+         ))}
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-         <button type="button" aria-label="수정" className="p-2 text-slate-500" onClick={()=>setModal({type:"record",kind:"task",value:t})}><Edit className="h-4 w-4"/></button>
-         <button type="button" aria-label="삭제" className="p-2 text-slate-500" onClick={()=>setModal({type:"delete",key:"tasks",id:t.id})}><Trash2 className="h-4 w-4"/></button>
+        <div className="relative flex-1">
+         <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400"/>
+         <input aria-label="할 일 검색" className={INPUT+" !py-2 pl-9 text-xs"} value={query} onChange={e=>setQuery(e.target.value)} placeholder="할 일 검색"/>
         </div>
        </div>
-      )) : <Empty>조건에 맞는 할 일이 없습니다.</Empty>}
-     </section>
-    </>;
+
+       <section className={PANEL}>
+        {list.length ? list.map(t => (
+         <div key={t.id} className="flex items-center justify-between gap-3 border-b border-line p-3.5 last:border-0">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+           <input type="checkbox" className="mt-1 h-4 w-4 shrink-0" aria-label={t.title+" 완료"} checked={!!t.done} onChange={()=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x)}))}/>
+           <div className="min-w-0 flex-1 text-left">
+            <div className="flex flex-wrap items-center gap-1.5">
+             {dDayBadge(t)}
+             {t.priority==="높음"&&!t.done&&<span className="rounded bg-red-50 border border-red-200 px-1.5 py-0.5 text-[10px] font-bold text-red-700">중요</span>}
+             <span className="text-[11px] text-slate-400">{t.category}</span>
+            </div>
+            <p className={`mt-1 break-words text-sm font-semibold ${t.done?"text-slate-400 line-through":"text-ink"}`}>{t.title}</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">마감: {dateLabel(t.date)}</p>
+           </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+           <button type="button" aria-label="수정" className="p-2 text-slate-500" onClick={()=>setModal({type:"record",kind:"task",value:t})}><Edit className="h-4 w-4"/></button>
+           <button type="button" aria-label="삭제" className="p-2 text-slate-500" onClick={()=>setModal({type:"delete",key:"tasks",id:t.id})}><Trash2 className="h-4 w-4"/></button>
+          </div>
+         </div>
+        )) : <Empty>조건에 맞는 할 일이 없습니다.</Empty>}
+       </section>
+      </>
+     )}
+    </div>;
    })()}
 
-   {page==="나의 일정"&&<>
-    {/* 모바일 전용: 일정 캘린더 ↔ 할 일 목록 원터치 전환 스위치 */}
-    <div className="mb-3 grid grid-cols-2 gap-1.5 rounded-xl border border-[#dcd3ee] bg-white p-1.5 shadow-2xs lg:hidden">
-     <button type="button" onClick={()=>go("할 일 목록")} className="rounded-lg bg-paper py-2 text-xs font-bold text-slate-600">☑️ 할 일 · 마감 관리</button>
-     <button type="button" onClick={()=>go("나의 일정")} className="rounded-lg bg-brand py-2 text-xs font-extrabold text-white shadow-xs">📅 일정 캘린더만 크게 보기</button>
-    </div>
-
-    {/* 상단 제목·날짜박스·추가버튼 없이 즉시 캘린더만 표시 */}
-    <section className={`${PANEL} mb-5 p-4 sm:p-5`}>
-     <ScheduleCalendar events={data.events} tasks={data.tasks} selectedDate={eventDate} onSelectDate={setEventDate} mode={calMode} onModeChange={setCalMode} onToggleTask={id=>update(d=>({...d,tasks:d.tasks.map(x=>x.id===id?{...x,done:!x.done}:x)}))} onEditEvent={e=>setModal({type:"record",kind:"event",value:e})} onEditTask={t=>setModal({type:"record",kind:"task",value:t})}/>
-    </section>
-   </>}
 
    {page==="학점제 과목 설계실"&&(()=>{
     const trackMap = new Map();
@@ -10993,26 +11141,17 @@ const renderInstallModal = () => modal?.type==="install" && (
     };
 
     return <div className="space-y-5">
-     {/* 상단 안내 및 대입정보포털 '어디가' 권장과목 자동 갱신 바 */}
-     <section className={`${PANEL} p-4 sm:p-5 border-2 border-[#dcd3ee] bg-gradient-to-r from-[#f6f2ff] via-[#faf8fe] to-white flex flex-wrap items-center justify-between gap-3`}>
-      <div>
-       <div className="flex flex-wrap items-center gap-2">
-        <Tag>대교협 '어디가(adiga.kr)' 권장과목 DB 내장</Tag>
-        <Tag>{hasSchoolData ? `🏫 본교 개설과목 ${Object.keys(schoolOpenedCourses).length}개 연동됨` : "🏫 본교 선택과목 연동 대기"}</Tag>
-        <span className="rounded-md bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
-         🔄 주기적 자동 갱신 ({adigaSyncMeta?.lastSyncedDate || day()} 기준 · {allTracks.length}개 계열)
-        </span>
-       </div>
-       <h2 className="mt-2 text-base sm:text-lg font-extrabold text-ink">🎓 고교학점제 진로·전공별 선택과목 설계 & 상담 시뮬레이터</h2>
-       <p className="mt-0.5 text-xs text-slate-600">
-        담임 선생님은 <strong>우리 반({myDept}) 학생</strong>을 바로 진단할 수 있고, <strong>우리 반이 아니거나 선택과목 정보가 없는 학생</strong>은 <strong>[🏫 본교 개설과목 기준 직접 설계]</strong>로 즉시 시뮬레이션할 수 있습니다.
-       </p>
+     {/* 상단 요약 바 */}
+     <section className={`${PANEL} p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-2.5`}>
+      <div className="flex flex-wrap items-center gap-2">
+       <Tag>어디가 권장과목 ({allTracks.length}개 계열)</Tag>
+       <span className="text-xs font-semibold text-slate-600">
+        {hasSchoolData ? `본교 개설 ${Object.keys(schoolOpenedCourses).length}과목 연동` : "본교 과목 연동 대기"} · {adigaSyncMeta?.lastSyncedDate || day()} 기준
+       </span>
       </div>
-      <div className="flex flex-wrap gap-2">
-       <Button primary onClick={() => syncMonthlyAdigaCutoffs(false)}>
-        🔄 '어디가' 권장과목 최신 갱신
-       </Button>
-      </div>
+      <Button primary className="!min-h-[36px] !px-3 !py-1.5 !text-xs" onClick={() => syncMonthlyAdigaCutoffs(false)}>
+       어디가 최신 갱신
+      </Button>
      </section>
 
      {/* STEP 1. 전공 계열 선택 (모바일에서도 한 손 터치 가능한 칩 & 검색) */}
@@ -11486,13 +11625,13 @@ const renderInstallModal = () => modal?.type==="install" && (
      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div className="flex max-w-full overflow-x-auto no-scrollbar min-h-[44px] items-center gap-1 rounded-lg border border-line bg-white p-1 shadow-soft">
        {(data.profile.homeroom
-        ? ["출결","월별 출결·AI 분석","제출물","🔄 수업교체·보강","📍 이동수업 실시간 위치","🪑 자리배치·모둠","🧹 1인1역·청소순환"]
-        : ["출결","월별 출결·AI 분석","🔄 수업교체·보강"]
-       ).map(x=>{
+        ? [["출결","출결"],["월별 출결·AI 분석","월별·통계"],["제출물","제출물"],["🔄 수업교체·보강","교체·보강"],["🪑 자리배치·모둠","자리배치"],["🧹 1인1역·청소순환","1인1역·청소"]]
+        : [["출결","출결"],["월별 출결·AI 분석","월별·통계"],["🔄 수업교체·보강","교체·보강"]]
+       ).map(([x, shortLabel])=>{
         const myName = (currentUser?.name || data.profile.teacher || "").trim();
         const pendingCnt = x==="🔄 수업교체·보강" ? swapRequests.filter(r => r.status==="pending" && ((r.type!=="perm_swap" && r.toTeacher===myName) || (r.type==="perm_swap" && ["master","subadmin"].includes(currentUser?.role)))).length : 0;
         return <button type="button" key={x} onClick={()=>{setClassTab(x);if(x==="출결")detectCurrentClass(data);if(x==="🔄 수업교체·보강"){loadAccountsChannel();pullSharedSchoolRoster(true);}}} className={`inline-flex h-[34px] shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-md px-3 text-[12.5px] font-medium transition-colors ${classTab===x?"bg-[#eee9fa] font-semibold text-brand":"text-slate-500 hover:bg-paper"}`}>
-         <span className="whitespace-nowrap">{x}</span>
+         <span className="whitespace-nowrap">{shortLabel}</span>
          {pendingCnt>0 && <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{pendingCnt}</span>}
         </button>;
        })}
@@ -13200,7 +13339,8 @@ const renderInstallModal = () => modal?.type==="install" && (
     {["출결","월별 출결·AI 분석","제출물"].includes(classTab) && (()=>{
      const dayNames = ["일","월","화","수","목","금","토"];
      const selDateObj = validDate(attDate) ? new Date(attDate+"T12:00:00Z") : new Date();
-     const selDayName = dayNames[selDateObj.getDay()];
+     const selDayName = dayNames[selDateObj.getUTCDay()];
+     const attDayPolicy = getSchoolDayPolicy(attDate, data.events);
      const activeOverride = getActiveSwapOverride(attDate, activePeriod);
      const scheduledClassId = activeOverride?.classId || data.timetable?.[`${selDayName}-${activePeriod}`] || "";
      const scheduledClass = activeOverride
@@ -13209,8 +13349,13 @@ const renderInstallModal = () => modal?.type==="install" && (
      const isUnset = !Object.keys(data.timetable||{}).length && (data.subjectClasses||[]).length<=1;
 
      return <div className="mb-4 rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-3.5 sm:p-4">
-      {(activeOverride || (scheduledClass && scheduledClass.id !== activeClassId)) && (
+      {(attDayPolicy.dayType !== "일반" || activeOverride || (scheduledClass && scheduledClass.id !== activeClassId)) && (
        <div className="mb-2.5 flex flex-wrap items-center justify-center sm:justify-start gap-2">
+        {attDayPolicy.dayType !== "일반" && (
+         <span className={`rounded-md px-2.5 py-0.5 text-[11px] font-extrabold ${attDayPolicy.isClosed ? "bg-red-100 text-red-700" : attDayPolicy.dayType === "정기고사" ? "bg-indigo-100 text-indigo-800" : "bg-amber-100 text-amber-900"}`}>
+          {attDayPolicy.isClosed ? "🚫 " : attDayPolicy.dayType === "정기고사" ? "📝 " : "⏱️ "}{attDayPolicy.label}
+         </span>
+        )}
         {activeOverride && (
          <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
           ✅ [{activeOverride.mode}] {activeOverride.note}
@@ -13236,15 +13381,19 @@ const renderInstallModal = () => modal?.type==="install" && (
        <input aria-label="출결 날짜" type="date" value={attDate} onChange={e=>{
         const nextDate=e.target.value;setAttDate(nextDate);
         if(validDate(nextDate)){
-         const ov = getActiveSwapOverride(nextDate, activePeriod);
+         const nextPol = getSchoolDayPolicy(nextDate, data.events);
+         const nextP = (nextPol.activePeriods.length > 0 && !nextPol.activePeriods.includes(activePeriod)) ? nextPol.activePeriods[0] : activePeriod;
+         if(nextP !== activePeriod) setActivePeriod(nextP);
+         setSelectedPeriods(prev => prev.filter(p => nextPol.activePeriods.includes(p)));
+         const ov = getActiveSwapOverride(nextDate, nextP);
          if(ov?.classId){ setActiveClassId(ov.classId); return; }
-         const dn=dayNames[new Date(nextDate+"T12:00:00Z").getDay()];
-         const cid=data.timetable?.[`${dn}-${activePeriod}`];
+         const dn=dayNames[new Date(nextDate+"T12:00:00Z").getUTCDay()];
+         const cid=data.timetable?.[`${dn}-${nextP}`];
          if(cid)setActiveClassId(cid);
         }
        }} className={INPUT+" !py-2 text-center font-semibold"}/>
 
-       <select aria-label="교시 선택" className={INPUT+" !py-2 font-semibold"} value={activePeriod} onChange={e=>{
+       <select aria-label="교시 선택" disabled={attDayPolicy.isClosed} className={INPUT+" !py-2 font-semibold disabled:opacity-50"} value={activePeriod} onChange={e=>{
         const p=Number(e.target.value);setActivePeriod(p);
         const ov = getActiveSwapOverride(attDate, p);
         if(ov?.classId){ setActiveClassId(ov.classId); return; }
@@ -13252,10 +13401,11 @@ const renderInstallModal = () => modal?.type==="install" && (
         if(cid)setActiveClassId(cid);
        }}>
         {FIXED_PERIOD_TIMES.map(p=>{
+         const isAllowed = attDayPolicy.activePeriods.includes(p.period);
          const ov = getActiveSwapOverride(attDate, p.period);
          const cid=ov?.classId || data.timetable?.[`${selDayName}-${p.period}`];
          const cname=ov ? `[${ov.mode}] ${ov.className}` : cid==="homeroom"?`우리반 (${className})`:(data.subjectClasses||[]).find(c=>c.id===cid)?.name;
-         return <option key={p.period} value={p.period}>{p.period}교시{cname?` · ${cname}`:""}</option>;
+         return <option key={p.period} value={p.period} disabled={!isAllowed}>{p.period}교시{!isAllowed ? " (미운영)" : (cname?` · ${cname}`:"")}</option>;
         })}
        </select>
 
@@ -14108,12 +14258,8 @@ const renderInstallModal = () => modal?.type==="install" && (
        };
       });
 
-      if(isHomeroom && stuObj){
-       const wasApproved = curSt === "출석인정" || curSt === "인정결석" || prevDet.subType === "출석인정";
-       const isNowApproved = curSt === "출석인정" || curSt === "인정결석" || nextDet.subType === "출석인정";
-       if(isNowApproved || wasApproved){
-        syncHomeroomApprovedToShared(attDate, stuObj, curSt, nextDet.subType || "", nextDet.memo || "", selectedPeriods);
-       }
+      if(isHomeroom && stuObj && curSt !== "미기록"){
+       syncHomeroomApprovedToShared(attDate, stuObj, curSt, nextDet.subType || "", nextDet.memo || "", selectedPeriods);
       } else if(!isHomeroom && stuObj && curSt !== "미기록"){
        const stuKey = `${stuDept}|${stuObj.name}`;
        setTimeout(() => {
@@ -14254,13 +14400,30 @@ const renderInstallModal = () => modal?.type==="install" && (
       const nextMap = { ...existingDayMap };
       unrecordedStudents.forEach(st => { nextMap[st.id] = "출석"; });
       if(isHomeroom){
+       const teacherName = cleanMasterLabel(currentUser?.name || data.profile.teacher || "담임교사");
+       const nowStr = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+       const hrSharedPatch = {};
+       unrecordedStudents.forEach(st => {
+        hrSharedPatch[`${myDept}|${st.name}`] = { status: "출석", subType: "", memo: "", periods: selectedPeriods, teacher: teacherName, updatedAt: nowStr };
+       });
        if(selectedPeriods.length > 0){
         applyStudentAttToSelectedPeriods(attDate, selectedPeriods, unrecordedStudents, "출석", nextMap);
         notify(`[${currentClassObj.name}] 미기록 학생 ${unrecordedStudents.length}명을 '출석'으로 일괄 체크했습니다! (기존 결석·출석인정 유지 · ${selectedPeriods.slice().sort((a,b)=>a-b).join(",")}교시 반영)`);
        } else {
-        update(d=>({...d,attendance:{...d.attendance,[attDate]:nextMap}}));
+        update(d=>({
+         ...d,
+         attendance:{...d.attendance,[attDate]:nextMap},
+         classAttendance:{
+          ...(d.classAttendance||{}),
+          __sharedHomeroom:{
+           ...(d.classAttendance?.__sharedHomeroom||{}),
+           [attDate]:{ ...(d.classAttendance?.__sharedHomeroom?.[attDate]||{}), ...hrSharedPatch }
+          }
+         }
+        }));
         notify(`[${currentClassObj.name}] 미기록 학생 ${unrecordedStudents.length}명을 '출석'으로 일괄 체크했습니다! (기존 기록 유지)`);
        }
+       setTimeout(() => pushSharedSchoolRoster({ sharedHomeroomAtt: { [attDate]: hrSharedPatch } }), 120);
       } else {
        const teacherName = cleanMasterLabel(currentUser?.name || data.profile.teacher || "교사");
        const nextSharedDate = { ...(data.classAttendance?.__sharedPeriod?.[attDate] || {}) };
@@ -14322,9 +14485,22 @@ const renderInstallModal = () => modal?.type==="install" && (
          ["출석인정", "출석인정"]
         ];
 
+     const attDayPolicy = getSchoolDayPolicy(attDate, data.events);
      const activeHealthInThisClass = targetStudents
       .map(st => ({ stu: st, visit: getStudentHealthVisit(st) }))
       .filter(item => item.visit && item.visit.status === "입실중");
+
+     if(classTab==="출결" && attDayPolicy.isClosed){
+      const nearestDay = getNearestSchoolDay(attDate, data.events);
+      return <section className={`${PANEL} p-8 text-center space-y-3`}>
+       <span className="inline-flex rounded-full bg-red-100 px-3 py-1 text-xs font-extrabold text-red-700">🚫 휴업일 출결 제외</span>
+       <h3 className="text-base font-extrabold text-ink">{dateLabel(attDate)} — {attDayPolicy.label}</h3>
+       <p className="text-xs text-slate-500">주말·법정 공휴일·대체공휴일·재량휴업일에는 출결 체크 대상이 아닙니다.</p>
+       <div className="pt-1">
+        <Button primary onClick={()=>{setAttDate(nearestDay);}}>📅 최근 등교일({nearestDay})로 이동</Button>
+       </div>
+      </section>;
+     }
 
      return <section className={`${PANEL} overflow-hidden`}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3.5 py-3 sm:px-5 sm:py-4 bg-[#faf8fe]">
@@ -14376,12 +14552,14 @@ const renderInstallModal = () => modal?.type==="install" && (
          <span className="text-[11px] sm:text-xs font-bold text-brand whitespace-nowrap">📌 함께 반영할 교시 선택 (담임용):</span>
          <div className="grid grid-cols-7 sm:flex gap-1 sm:gap-1.5">
           {[1,2,3,4,5,6,7].map(p=>{
-           const on = selectedPeriods.includes(p);
+           const isAllowed = attDayPolicy.activePeriods.includes(p);
+           const on = isAllowed && selectedPeriods.includes(p);
            return <button
             type="button"
             key={p}
-            onClick={()=>togglePeriodSel(p)}
-            className={`whitespace-nowrap rounded-lg border px-1 sm:px-2.5 py-1 text-center text-[11px] sm:text-xs font-bold transition-all ${on?"border-brand bg-brand text-white shadow-sm":"border-[#dcd3ee] bg-white text-slate-600 hover:border-brand"}`}
+            disabled={!isAllowed}
+            onClick={()=>isAllowed && togglePeriodSel(p)}
+            className={`whitespace-nowrap rounded-lg border px-1 sm:px-2.5 py-1 text-center text-[11px] sm:text-xs font-bold transition-all ${!isAllowed?"border-line bg-slate-100 text-slate-300 line-through cursor-not-allowed":on?"border-brand bg-brand text-white shadow-sm":"border-[#dcd3ee] bg-white text-slate-600 hover:border-brand"}`}
            >
             <span className="sm:hidden">{on?"✓":""}{p}교</span>
             <span className="hidden sm:inline">{on?"✓ ":""}{p}교시</span>
@@ -14390,9 +14568,9 @@ const renderInstallModal = () => modal?.type==="install" && (
          </div>
         </div>
         <div className="grid grid-cols-4 sm:flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs">
-         <button type="button" onClick={()=>setSelectedPeriods([1,2,3,4])} className="whitespace-nowrap rounded-md border border-[#dcd3ee] bg-white px-1.5 sm:px-2 py-1 font-semibold text-[#493b7a] hover:bg-[#f0ecfa]">오전(1~4)</button>
-         <button type="button" onClick={()=>setSelectedPeriods([5,6,7])} className="whitespace-nowrap rounded-md border border-[#dcd3ee] bg-white px-1.5 sm:px-2 py-1 font-semibold text-[#493b7a] hover:bg-[#f0ecfa]">오후(5~7)</button>
-         <button type="button" onClick={()=>setSelectedPeriods([1,2,3,4,5,6,7])} className="whitespace-nowrap rounded-md border border-[#dcd3ee] bg-white px-1.5 sm:px-2 py-1 font-semibold text-[#493b7a] hover:bg-[#f0ecfa]">전교시</button>
+         <button type="button" onClick={()=>setSelectedPeriods([1,2,3,4].filter(p=>attDayPolicy.activePeriods.includes(p)))} className="whitespace-nowrap rounded-md border border-[#dcd3ee] bg-white px-1.5 sm:px-2 py-1 font-semibold text-[#493b7a] hover:bg-[#f0ecfa]">오전</button>
+         <button type="button" onClick={()=>setSelectedPeriods([5,6,7].filter(p=>attDayPolicy.activePeriods.includes(p)))} className="whitespace-nowrap rounded-md border border-[#dcd3ee] bg-white px-1.5 sm:px-2 py-1 font-semibold text-[#493b7a] hover:bg-[#f0ecfa]">오후</button>
+         <button type="button" onClick={()=>setSelectedPeriods([...attDayPolicy.activePeriods])} className="whitespace-nowrap rounded-md border border-[#dcd3ee] bg-white px-1.5 sm:px-2 py-1 font-semibold text-[#493b7a] hover:bg-[#f0ecfa]">전교시</button>
          <button type="button" onClick={()=>setSelectedPeriods([])} className="whitespace-nowrap rounded-md border border-line bg-white px-1.5 sm:px-2 py-1 text-slate-500 hover:text-red-600">조회만</button>
         </div>
        </div>
@@ -14649,7 +14827,635 @@ const renderInstallModal = () => modal?.type==="install" && (
     <p className="mt-3 text-xs leading-6 text-slate-500">변경 즉시 저장합니다. [전원 출석 일괄체크] 버튼을 누른 뒤 결석·지각 학생만 클릭하면 빠르게 출결을 마칠 수 있습니다.</p>
    </>}
 
+   {page==="실시간 학생 상황"&&(()=>{
+    const isHomeroomUser = !!data.profile.homeroom;
+    const activeMode = !isHomeroomUser ? "subject" : (liveCheckMode === "auto" ? "homeroom" : liveCheckMode);
+    const dayNames = ["일","월","화","수","목","금","토"];
+    const selDateObj = validDate(liveCheckDate) ? new Date(liveCheckDate + "T12:00:00Z") : new Date();
+    const selDayName = dayNames[selDateObj.getUTCDay()];
+    const liveDayPolicy = getSchoolDayPolicy(liveCheckDate, data.events);
+    const effectivePeriod = (!liveDayPolicy.isClosed && liveDayPolicy.activePeriods.length > 0 && !liveDayPolicy.activePeriods.includes(Number(liveCheckPeriod)))
+     ? liveDayPolicy.activePeriods[0]
+     : Number(liveCheckPeriod);
+    const curSlotKey = `${selDayName}-${effectivePeriod}`;
+    const myDept = `${data.profile.grade}-${data.profile.classroom}`;
+
+    const sharedPeriodMap = data.classAttendance?.__sharedPeriod?.[liveCheckDate]?.[effectivePeriod] || {};
+    const sharedHomeroomMap = data.classAttendance?.__sharedHomeroom?.[liveCheckDate] || {};
+    const todayHealthList = Array.isArray(data.classAttendance?.__sharedHealthRoom?.[liveCheckDate])
+     ? data.classAttendance.__sharedHealthRoom[liveCheckDate]
+     : [];
+    const hrTeachersMap = data.schoolMasterData?.homeroomTeachers || {};
+    const elRoomsMap = data.schoolMasterData?.electiveRooms || {};
+    const masterTeachersMap = data.schoolMasterData?.teachers || {};
+    const em = data.electiveMatrix || { headers: ["A","B","C","D"], rows: [], periodSlotMap: {} };
+
+    const findHealthVisit = (dept, name) => {
+     const activeV = todayHealthList.find(v => v.status === "입실중" && v.name === name && (!v.dept || v.dept === dept));
+     if(activeV) return activeV;
+     return todayHealthList.find(v => v.name === name && (!v.dept || v.dept === dept)) || null;
+    };
+
+    const jumpToNowPeriod = () => {
+     const now = new Date();
+     const tStr = day();
+     const dn = dayNames[now.getDay()];
+     const pol = getSchoolDayPolicy(tStr, data.events);
+     const curPt = getCurrentSchoolPeriod(now);
+     const rawP = curPt ? curPt.period : 1;
+     const pNum = pol.activePeriods.length > 0 && !pol.activePeriods.includes(rawP) ? pol.activePeriods[0] : rawP;
+     setLiveCheckDate(tStr);
+     setLiveCheckPeriod(pNum);
+     const ov = getActiveSwapOverride(tStr, pNum);
+     const scId = ov?.classId || data.timetable?.[`${dn}-${pNum}`] || "";
+     if(scId && scId !== "homeroom") setLiveCheckClassId(scId);
+     pullSharedSchoolRoster(false);
+    };
+
+    const normalizeStatusSimple = raw => {
+     const b = String(raw || "").replace(/\(.*\)$/, "").trim();
+     if(b === "인정결석") return "출석인정";
+     if(b === "미입실") return "결과";
+     return b;
+    };
+
+    // 담임 출결 즉시 수정 (출결·제출물 관리 및 공용 채널과 100% 동일 연동)
+    const quickApplyHomeroomAtt = (stuObj, nextStatus) => {
+     if(!stuObj || liveDayPolicy.isClosed) return;
+     const curVal = data.attendance?.[liveCheckDate]?.[stuObj.id] || "미기록";
+     const finalStatus = curVal === nextStatus ? "미기록" : nextStatus;
+     const detKey = `hr_${liveCheckDate}`;
+     const prevDet = data.attendanceProofs?.__details?.[detKey]?.[stuObj.id] || { subType: "", memo: "" };
+     const nextSubType = (finalStatus === "출석" || finalStatus === "미기록")
+      ? ""
+      : finalStatus === "출석인정"
+      ? "출석인정"
+      : (prevDet.subType || "질병");
+     update(d => ({
+      ...d,
+      attendance: {
+       ...(d.attendance || {}),
+       [liveCheckDate]: { ...(d.attendance?.[liveCheckDate] || {}), [stuObj.id]: finalStatus }
+      },
+      attendanceProofs: {
+       ...(d.attendanceProofs || {}),
+       __details: {
+        ...(d.attendanceProofs?.__details || {}),
+        [detKey]: { ...(d.attendanceProofs?.__details?.[detKey] || {}), [stuObj.id]: { ...prevDet, subType: nextSubType } }
+       }
+      }
+     }));
+     syncHomeroomApprovedToShared(liveCheckDate, stuObj, finalStatus, nextSubType, prevDet.memo || "", []);
+     notify(`[${stuObj.number}번 ${stuObj.name}] 담임 출결을 [${finalStatus}](으)로 반영했습니다.`);
+    };
+
+    // --- [모드 A: 담임용] 우리 반 학생별 현재 교시 수업·장소·교과출결·소재 통합 조회 ---
+    const classSlotInfo = data.schoolMasterData?.classTimetables?.[myDept]?.[curSlotKey];
+    const inferredSlot = (() => {
+     if(!classSlotInfo?.subject) return "";
+     const m = String(classSlotInfo.subject).replace(/\(원\)/g,"").trim().match(/([A-N])0?$/i);
+     return m ? m[1].toUpperCase() : "";
+    })();
+    const availHeaders = (em.headers && em.headers.length > 0) ? em.headers : ["A","B","C","D"];
+    const activeSlot = em.periodSlotMap?.[curSlotKey] || (inferredSlot && availHeaders.includes(inferredSlot) ? inferredSlot : "");
+
+    const findStudentClassMeta = (stuObj) => {
+     if(activeSlot){
+      const mxRow = (em.rows || []).find(r => r.dept === myDept && (r.name === stuObj.name || Number(r.number) === Number(stuObj.number)));
+      const rawChoice = mxRow?.choices?.[activeSlot] || mxRow?.choices?.[`${activeSlot}타임`] || "";
+      if(rawChoice && rawChoice !== "-" && !/본반|공강|자습/.test(rawChoice)){
+       const normT = cleanElectiveSubjToken(rawChoice).replace(/([A-Z])0$/i, "$1");
+       let fTeacher = "";
+       let fRoom = resolveElectiveRoomOverride(rawChoice, "", "", elRoomsMap);
+       for(const [tName, slots] of Object.entries(masterTeachersMap)){
+        const mSlot = (slots || []).find(s => cleanElectiveSubjToken(s.subject).replace(/([A-Z])0$/i, "$1") === normT && s.day === selDayName && Number(s.period) === effectivePeriod)
+         || (slots || []).find(s => cleanElectiveSubjToken(s.subject).replace(/([A-Z])0$/i, "$1") === normT);
+        if(mSlot){ fTeacher = tName; if(!fRoom && mSlot.room) fRoom = mSlot.room; break; }
+       }
+       if(!fRoom && fTeacher) fRoom = resolveElectiveRoomOverride(rawChoice, fTeacher, "", elRoomsMap);
+       return { subject: rawChoice, room: fRoom || "이동교실", teacher: fTeacher };
+      }
+     }
+     return {
+      subject: String(classSlotInfo?.subject || "정규수업").replace(/\(원\)/g,"").trim(),
+      room: classSlotInfo?.room || myDept,
+      teacher: classSlotInfo?.teacher || ""
+     };
+    };
+
+    const localPeriodKey = `${liveCheckDate}_${effectivePeriod}교시`;
+    const hrDayMap = data.attendance?.[liveCheckDate] || {};
+    const hrDetailMap = data.attendanceProofs?.__details?.[`hr_${liveCheckDate}`] || {};
+
+    const homeroomRows = isHomeroomUser ? (data.students || []).filter(s => !s.leaveType).map(st => {
+     const meta = findStudentClassMeta(st);
+     const sharedRec = sharedPeriodMap[`${myDept}|${st.name}`];
+     let subjStatus = sharedRec?.rawStatus || sharedRec?.status || data.classAttendance?.homeroom?.[localPeriodKey]?.[st.id] || "";
+     if(subjStatus === "미기록") subjStatus = "";
+     let subjTeacher = sharedRec?.teacher || meta.teacher || "";
+     let subjName = sharedRec?.subject || meta.subject;
+     if(!subjStatus){
+      for(const cls of (data.subjectClasses || []).filter(c => c.id !== "homeroom")){
+       const mStu = (cls.students || []).find(s => s.name === st.name && (!s.dept || s.dept === myDept));
+       if(mStu){
+        const val = data.classAttendance?.[cls.id]?.[localPeriodKey]?.[mStu.id];
+        if(val && val !== "미기록"){ subjStatus = val; subjName = cls.name; break; }
+       }
+      }
+     }
+     const hrSt = hrDayMap[st.id] || "미기록";
+     const hrDet = hrDetailMap[st.id] || {};
+     const sbSt = subjStatus || "미체크";
+     const normHr = normalizeStatusSimple(hrSt);
+     const normSb = normalizeStatusSimple(sbSt);
+     const healthV = findHealthVisit(myDept, st.name);
+     const isMismatch = normHr !== "미기록" && normSb !== "미체크" && normHr !== normSb;
+     const isIssue = isMismatch || (!["출석","미체크"].includes(normSb)) || (!["출석","미기록"].includes(normHr));
+     return { ...st, meta, subjName, subjTeacher, hrSt, hrDet, sbSt, normHr, normSb, healthV, isMismatch, isIssue };
+    }) : [];
+
+    const filteredHrRows = homeroomRows.filter(r => {
+     if(liveCheckSearch.trim() && !`${r.number} ${r.name} ${r.subjName} ${r.meta.room}`.toLowerCase().includes(liveCheckSearch.trim().toLowerCase())) return false;
+     if(liveCheckFilter === "present") return r.normSb === "출석";
+     if(liveCheckFilter === "issues") return r.isIssue;
+     if(liveCheckFilter === "outside") return r.healthV?.status === "입실중";
+     return true;
+    });
+
+    // --- [모드 B: 교과담임용] 내 수업 출결 ↔ 학급 담임 출결 & 교실 외 소재 실시간 대조·수정 ---
+    const nonHrClasses = (data.subjectClasses || []).filter(c => c.id !== "homeroom");
+    const activeOv = getActiveSwapOverride(liveCheckDate, effectivePeriod);
+    const scheduledSubjId = (activeOv?.classId && activeOv.classId !== "homeroom")
+     ? activeOv.classId
+     : (data.timetable?.[`${selDayName}-${effectivePeriod}`] !== "homeroom" ? data.timetable?.[`${selDayName}-${effectivePeriod}`] : "");
+    const resolvedSubjClassId = nonHrClasses.some(c => c.id === liveCheckClassId)
+     ? liveCheckClassId
+     : (nonHrClasses.some(c => c.id === scheduledSubjId) ? scheduledSubjId : (nonHrClasses[0]?.id || ""));
+    const currentSubjClass = nonHrClasses.find(c => c.id === resolvedSubjClassId) || null;
+    const subjStudents = currentSubjClass ? (currentSubjClass.students || []).filter(s => !s.leaveType) : [];
+
+    const quickApplySubjectAtt = (stuObj, nextStatus, subTypeVal = "", memoVal = "") => {
+     if(!currentSubjClass || !stuObj || liveDayPolicy.isClosed) return;
+     const stDept = stuObj.dept || myDept;
+     const teacherName = cleanMasterLabel(currentUser?.name || data.profile.teacher || "교과교사");
+     const rKey = `${liveCheckDate}_${effectivePeriod}교시`;
+     const detKey = `${currentSubjClass.id}_${rKey}`;
+     const stuKey = `${stDept}|${stuObj.name}`;
+     const rec = nextStatus === "미기록" ? null : {
+      status: subTypeVal ? `${nextStatus}(${subTypeVal})` : nextStatus,
+      rawStatus: nextStatus,
+      subType: subTypeVal,
+      memo: memoVal,
+      subject: currentSubjClass.name,
+      teacher: teacherName,
+      updatedAt: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+     };
+     update(d => {
+      const nextSharedDay = { ...(d.classAttendance?.__sharedPeriod?.[liveCheckDate] || {}) };
+      const nextSharedP = { ...(nextSharedDay[effectivePeriod] || {}) };
+      if(!rec) delete nextSharedP[stuKey];
+      else nextSharedP[stuKey] = rec;
+      nextSharedDay[effectivePeriod] = nextSharedP;
+      return {
+       ...d,
+       attendanceProofs: {
+        ...(d.attendanceProofs || {}),
+        __details: {
+         ...(d.attendanceProofs?.__details || {}),
+         [detKey]: { ...(d.attendanceProofs?.__details?.[detKey] || {}), [stuObj.id]: { subType: nextStatus === "미기록" ? "" : subTypeVal, memo: nextStatus === "미기록" ? "" : memoVal } }
+        }
+       },
+       classAttendance: {
+        ...(d.classAttendance || {}),
+        [currentSubjClass.id]: {
+         ...(d.classAttendance?.[currentSubjClass.id] || {}),
+         [rKey]: { ...(d.classAttendance?.[currentSubjClass.id]?.[rKey] || {}), [stuObj.id]: nextStatus }
+        },
+        __sharedPeriod: { ...(d.classAttendance?.__sharedPeriod || {}), [liveCheckDate]: nextSharedDay }
+       }
+      };
+     });
+     setTimeout(() => pushSharedSchoolRoster({ sharedPeriodAtt: { [liveCheckDate]: { [effectivePeriod]: { [stuKey]: rec } } } }), 100);
+     notify(`[${stDept} ${stuObj.name}] ${effectivePeriod}교시 출결을 [${nextStatus}${subTypeVal ? `·${subTypeVal}` : ""}](으)로 반영했습니다.`);
+    };
+
+    const subjectRows = subjStudents.map(st => {
+     const stDept = st.dept || myDept;
+     const rawLocalVal = data.classAttendance?.[currentSubjClass.id]?.[localPeriodKey]?.[st.id] || "";
+     const myLocalVal = rawLocalVal && rawLocalVal !== "미기록" ? rawLocalVal : "";
+     const mySharedRec = sharedPeriodMap[`${stDept}|${st.name}`];
+     const myStatus = myLocalVal || mySharedRec?.rawStatus || mySharedRec?.status || "미체크";
+     const normMy = normalizeStatusSimple(myStatus);
+
+     let hrRec = sharedHomeroomMap[`${stDept}|${st.name}`];
+     if(hrRec?.status === "취소") hrRec = null;
+     if(!hrRec && isHomeroomUser && stDept === myDept){
+      const localHrSt = hrDayMap[st.id];
+      if(localHrSt && localHrSt !== "미기록"){
+       const localDet = hrDetailMap[st.id] || {};
+       hrRec = { status: localHrSt, subType: localDet.subType || "", memo: localDet.memo || "", teacher: cleanMasterLabel(currentUser?.name || data.profile.teacher || "담임") };
+      }
+     }
+     const hrStatus = hrRec?.status || "미기록";
+     const normHr = normalizeStatusSimple(hrStatus);
+     const hrTeacherName = hrRec?.teacher || hrTeachersMap[stDept] || "";
+     const healthV = findHealthVisit(stDept, st.name);
+
+     const isNotPresent = normMy !== "출석";
+     let compareType = "ok";
+     if(isNotPresent){
+      if(healthV?.status === "입실중") compareType = "health";
+      else if(normHr === "출석인정") compareType = "approved";
+      else if(["결석","조퇴","지각","결과"].includes(normHr)) compareType = "hr_absent";
+      else compareType = "alert";
+     }
+     return { ...st, stDept, myStatus, normMy, hrRec, hrStatus, normHr, hrTeacherName, healthV, isNotPresent, compareType };
+    });
+
+    const notPresentCount = subjectRows.filter(r => r.isNotPresent).length;
+    const alertCount = subjectRows.filter(r => r.compareType === "alert").length;
+    const filteredSubjRows = subjectRows.filter(r => {
+     if(liveCheckSearch.trim() && !`${r.stDept} ${r.number} ${r.name}`.toLowerCase().includes(liveCheckSearch.trim().toLowerCase())) return false;
+     if(liveCheckFilter === "issues") return r.isNotPresent;
+     if(liveCheckFilter === "outside") return r.healthV?.status === "입실중";
+     if(liveCheckFilter === "present") return !r.isNotPresent;
+     return true;
+    }).sort((a,b) => {
+     const order = { alert: 0, health: 1, approved: 2, hr_absent: 3, ok: 4 };
+     return (order[a.compareType] ?? 9) - (order[b.compareType] ?? 9) || a.number - b.number;
+    });
+
+    return <div className="space-y-4">
+     {/* 상단 초간단 컨트롤: 모드 전환 + 날짜 + 운영 교시 원터치 */}
+     <section className={`${PANEL} p-3.5 sm:p-4 space-y-3`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+       {isHomeroomUser ? (
+        <div className="grid grid-cols-2 gap-1 rounded-xl border border-[#dcd3ee] bg-paper p-1 w-full sm:w-auto sm:min-w-[260px]">
+         <button
+          type="button"
+          onClick={() => { setLiveCheckMode("homeroom"); setLiveCheckFilter("all"); }}
+          className={`rounded-lg px-3 py-2 text-xs font-extrabold transition-all ${activeMode === "homeroom" ? "bg-brand text-white shadow-xs" : "text-slate-600"}`}
+         >
+          🏫 우리반 ({myDept})
+         </button>
+         <button
+          type="button"
+          onClick={() => { setLiveCheckMode("subject"); setLiveCheckFilter("issues"); }}
+          className={`rounded-lg px-3 py-2 text-xs font-extrabold transition-all ${activeMode === "subject" ? "bg-brand text-white shadow-xs" : "text-slate-600"}`}
+         >
+          📘 내 수업 대조
+         </button>
+        </div>
+       ) : (
+        <span className="text-sm font-extrabold text-brand">📘 내 수업 미출석 · 담임 출결 대조</span>
+       )}
+
+       <div className="flex w-full sm:w-auto items-center gap-1.5">
+        <input
+         type="date"
+         aria-label="확인 날짜"
+         value={liveCheckDate}
+         onChange={e => {
+          const nextD = e.target.value;
+          setLiveCheckDate(nextD);
+          const pol = getSchoolDayPolicy(nextD, data.events);
+          if(!pol.isClosed && pol.activePeriods.length > 0 && !pol.activePeriods.includes(Number(liveCheckPeriod))){
+           setLiveCheckPeriod(pol.activePeriods[0]);
+          }
+         }}
+         className={INPUT + " flex-1 sm:!w-[145px] !py-1.5 text-center font-bold text-xs"}
+        />
+        <Button primary className="!min-h-[38px] !px-3 !py-1.5 !text-xs shrink-0" onClick={jumpToNowPeriod}>
+         ⚡ 지금 교시
+        </Button>
+       </div>
+      </div>
+
+      {liveDayPolicy.dayType !== "일반" && (
+       <div className={`rounded-lg px-3 py-2 text-xs font-extrabold flex items-center justify-between gap-2 ${liveDayPolicy.isClosed ? "bg-red-50 text-red-700 border border-red-200" : liveDayPolicy.dayType === "정기고사" ? "bg-indigo-50 text-indigo-800 border border-indigo-200" : "bg-amber-50 text-amber-900 border border-amber-200"}`}>
+        <span>{liveDayPolicy.isClosed ? "🚫 " : liveDayPolicy.dayType === "정기고사" ? "📝 " : "⏱️ "}{liveDayPolicy.label}</span>
+        {!liveDayPolicy.isClosed && <span className="text-[11px] font-semibold">운영 교시만 선택 가능</span>}
+       </div>
+      )}
+
+      {/* 1~7교시 원터치 버튼 (휴업일·단축·정기고사 비운영 교시 자동 비활성화) */}
+      <div className="grid grid-cols-7 gap-1">
+       {FIXED_PERIOD_TIMES.map(pt => {
+        const isAllowed = !liveDayPolicy.isClosed && liveDayPolicy.activePeriods.includes(pt.period);
+        const active = isAllowed && effectivePeriod === pt.period;
+        const myScheduledId = data.timetable?.[`${selDayName}-${pt.period}`];
+        const hasClass = !!myScheduledId && myScheduledId !== "homeroom";
+        return (
+         <button
+          type="button"
+          key={pt.period}
+          disabled={!isAllowed}
+          onClick={() => {
+           if(!isAllowed) return;
+           setLiveCheckPeriod(pt.period);
+           const ov = getActiveSwapOverride(liveCheckDate, pt.period);
+           const scId = ov?.classId || data.timetable?.[`${selDayName}-${pt.period}`] || "";
+           if(scId && scId !== "homeroom") setLiveCheckClassId(scId);
+          }}
+          className={`rounded-lg border py-1.5 text-center text-xs font-extrabold transition-all ${
+           !isAllowed
+            ? "border-line bg-slate-100 text-slate-300 line-through cursor-not-allowed"
+            : active
+            ? "border-brand bg-brand text-white shadow-xs"
+            : hasClass
+            ? "border-[#dcd3ee] bg-[#faf8fe] text-brand hover:border-brand"
+            : "border-line bg-white text-slate-500 hover:bg-paper"
+          }`}
+         >
+          {pt.period}교시
+         </button>
+        );
+       })}
+      </div>
+
+      {!liveDayPolicy.isClosed && <>
+       {/* 교과 모드: 수업반 드롭다운 / 공통: 검색 + 필터 칩 */}
+       <div className="flex flex-col sm:flex-row gap-2">
+        {activeMode === "subject" && (
+         <select
+          aria-label="대조할 내 수업반"
+          value={resolvedSubjClassId}
+          onChange={e => setLiveCheckClassId(e.target.value)}
+          className={INPUT + " sm:!w-[230px] !py-2 font-extrabold text-brand text-xs"}
+         >
+          {nonHrClasses.length === 0 && <option value="">등록된 교과 수업반 없음</option>}
+          {nonHrClasses.map(c => <option key={c.id} value={c.id}>📘 {c.name} ({(c.students||[]).length}명)</option>)}
+         </select>
+        )}
+        <div className="relative flex-1">
+         <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400"/>
+         <input
+          value={liveCheckSearch}
+          onChange={e => setLiveCheckSearch(e.target.value)}
+          placeholder={activeMode === "homeroom" ? "학생 이름·과목·교실 검색" : "학생 이름·학반 검색"}
+          className={INPUT + " !py-2 pl-9 text-xs"}
+         />
+        </div>
+       </div>
+
+       {/* 필터 칩 (심플 요약 겸용) */}
+       <div className="grid grid-cols-4 gap-1.5">
+        {(activeMode === "homeroom" ? [
+         ["all", `전체 ${homeroomRows.length}`],
+         ["issues", `확인 ${homeroomRows.filter(r=>r.isIssue).length}`],
+         ["present", `출석 ${homeroomRows.filter(r=>r.normSb==="출석").length}`],
+         ["outside", `교실외 ${homeroomRows.filter(r=>r.healthV?.status==="입실중").length}`]
+        ] : [
+         ["issues", `미출석 ${notPresentCount}`],
+         ["all", `전체 ${subjectRows.length}`],
+         ["outside", `교실외 ${subjectRows.filter(r=>r.healthV?.status==="입실중").length}`],
+         ["present", `출석 ${subjectRows.length - notPresentCount}`]
+        ]).map(([fKey, fLabel]) => (
+         <button
+          type="button"
+          key={fKey}
+          onClick={() => setLiveCheckFilter(fKey)}
+          className={`rounded-lg border py-1.5 text-center text-[11.5px] font-extrabold transition-colors ${
+           liveCheckFilter === fKey
+            ? "border-brand bg-[#eee9fa] text-brand"
+            : "border-line bg-white text-slate-500 hover:bg-paper"
+          }`}
+         >
+          {fLabel}
+         </button>
+        ))}
+       </div>
+      </>}
+     </section>
+
+     {/* 휴업일(주말·공휴일·대체공휴일·재량휴업일) 안내 카드 */}
+     {liveDayPolicy.isClosed ? (
+      <section className={`${PANEL} p-8 text-center space-y-3`}>
+       <span className="inline-flex rounded-full bg-red-100 px-3 py-1 text-xs font-extrabold text-red-700">🚫 휴업일 출결 제외</span>
+       <h3 className="text-base font-extrabold text-ink">{dateLabel(liveCheckDate)} ({selDayName}) — {liveDayPolicy.label}</h3>
+       <p className="text-xs text-slate-500">주말·법정 공휴일·대체공휴일·재량휴업일에는 출결을 체크하지 않습니다.</p>
+       <div className="pt-1">
+        <Button primary onClick={() => setLiveCheckDate(getNearestSchoolDay(liveCheckDate, data.events))}>
+         📅 최근 등교일({getNearestSchoolDay(liveCheckDate, data.events)})로 이동
+        </Button>
+       </div>
+      </section>
+     ) : <>
+      {/* [모드 A] 담임용: 우리 반 실시간 학생 상황 리스트 + 담임 출결 즉시 수정 */}
+      {activeMode === "homeroom" && (
+       <section className="space-y-2">
+        {filteredHrRows.length > 0 ? filteredHrRows.map(r => {
+         const lp = r.healthV?.status === "입실중" ? getLocationPreset(r.healthV.location) : null;
+         const sbBadge = r.normSb === "출석"
+          ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+          : r.normSb === "미체크"
+          ? "bg-slate-100 text-slate-500 border-slate-200"
+          : r.normSb === "출석인정"
+          ? "bg-[#eee9fa] text-brand border-[#dcd3ee]"
+          : "bg-red-100 text-red-700 border-red-200";
+         return (
+          <div
+           key={r.id}
+           className={`rounded-xl border bg-white p-3.5 shadow-2xs space-y-2 ${r.isMismatch ? "border-2 border-red-400 bg-red-50/30" : lp ? "border-2 border-rose-300" : "border-[#dcd3ee]"}`}
+          >
+           <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+             <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-paper text-xs font-extrabold text-slate-600">{r.number}</span>
+             <span className="text-sm font-extrabold text-ink whitespace-nowrap">{r.name}</span>
+             <span className="truncate rounded-md bg-[#faf8fe] border border-[#e5def5] px-2 py-0.5 text-[11px] font-bold text-brand">
+              {r.subjName} · {r.meta.room}
+             </span>
+            </div>
+            <span className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs font-extrabold whitespace-nowrap ${sbBadge}`}>
+             {effectivePeriod}교시 {r.normSb}
+            </span>
+           </div>
+
+           <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] text-slate-600">
+            <div className="flex flex-wrap items-center gap-1.5">
+             <span>담임조회: <strong className={r.normHr === "출석" ? "text-emerald-700" : r.normHr === "미기록" ? "text-slate-400" : "text-amber-700"}>{r.hrSt}{r.hrDet?.subType ? `(${r.hrDet.subType})` : ""}</strong></span>
+             {r.hrDet?.memo && <span className="text-slate-500">· {r.hrDet.memo}</span>}
+             {r.subjTeacher && <span className="text-slate-400">· 담당 {r.subjTeacher}</span>}
+            </div>
+            <div className="flex items-center gap-1.5">
+             {lp && (
+              <span className={`rounded border px-2 py-0.5 text-[10.5px] font-extrabold ${lp.badgeCls}`}>
+               {lp.icon} {lp.shortLabel} {r.healthV.inTime}~
+              </span>
+             )}
+             {r.isMismatch && (
+              <span className="rounded bg-red-600 px-2 py-0.5 text-[10.5px] font-extrabold text-white">
+               불일치 확인
+              </span>
+             )}
+            </div>
+           </div>
+
+           {/* 담임 출결 즉시 수정 버튼 (언제든 클릭해서 변경·취소 가능) */}
+           <div className="grid grid-cols-6 gap-1 pt-1 border-t border-line/70">
+            {["출석","출석인정","결석","지각","조퇴","결과"].map(stVal => {
+             const isCur = r.normHr === stVal;
+             const actCls = stVal === "출석"
+              ? "bg-emerald-600 text-white border-emerald-600"
+              : stVal === "출석인정"
+              ? "bg-brand text-white border-brand"
+              : stVal === "결석"
+              ? "bg-red-600 text-white border-red-600"
+              : "bg-amber-500 text-white border-amber-500";
+             return (
+              <button
+               type="button"
+               key={stVal}
+               onClick={() => quickApplyHomeroomAtt(r, stVal)}
+               className={`rounded-md border py-1 text-center text-[10.5px] font-bold transition-colors ${isCur ? actCls : "border-line bg-paper/60 text-slate-600 hover:bg-white"}`}
+              >
+               {stVal === "출석인정" ? "인정" : stVal}
+              </button>
+             );
+            })}
+           </div>
+          </div>
+         );
+        }) : (
+         <section className={PANEL}><Empty>해당 조건의 학생이 없습니다.</Empty></section>
+        )}
+       </section>
+      )}
+
+      {/* [모드 B] 교과담임용: 내 수업 출결 ↔ 학급 담임 출결 1:1 대조 + 상시 수정 가능 */}
+      {activeMode === "subject" && (
+       <section className="space-y-2.5">
+        {alertCount > 0 && (
+         <div className="rounded-xl border-2 border-red-300 bg-red-50 px-3.5 py-2.5 text-xs font-extrabold text-red-800 flex items-center justify-between">
+          <span>🚨 담임 출결과 대조 확인이 필요한 학생 {alertCount}명</span>
+          <span className="text-[11px] font-semibold">담임 출석/미기록 상태</span>
+         </div>
+        )}
+        {!currentSubjClass ? (
+         <section className={PANEL}><Empty>배정된 교과 수업반이 없습니다.</Empty></section>
+        ) : filteredSubjRows.length > 0 ? filteredSubjRows.map(r => {
+         const lp = r.healthV?.status === "입실중" ? getLocationPreset(r.healthV.location) : null;
+         return (
+          <div
+           key={r.id}
+           className={`rounded-xl border bg-white p-3.5 shadow-2xs space-y-2.5 ${
+            r.compareType === "alert"
+             ? "border-2 border-red-400 bg-red-50/30"
+             : r.compareType === "health"
+             ? "border-2 border-rose-300 bg-rose-50/20"
+             : r.compareType === "approved"
+             ? "border-2 border-indigo-300 bg-indigo-50/20"
+             : "border-[#dcd3ee]"
+           }`}
+          >
+           <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+             <span className="rounded bg-[#eee9fa] px-1.5 py-0.5 text-[11px] font-extrabold text-brand shrink-0">{r.stDept}</span>
+             <span className="text-sm font-extrabold text-ink whitespace-nowrap">{r.number}번 {r.name}</span>
+             {r.hrTeacherName && <span className="truncate text-[11px] text-slate-400">({r.hrTeacherName} 담임)</span>}
+            </div>
+            {r.compareType === "alert" && <span className="shrink-0 rounded-md bg-red-600 px-2 py-0.5 text-[10.5px] font-extrabold text-white">확인 필요</span>}
+            {r.compareType === "health" && <span className={`shrink-0 rounded-md border px-2 py-0.5 text-[10.5px] font-extrabold ${lp.badgeCls}`}>{lp.icon} {lp.shortLabel}</span>}
+            {r.compareType === "approved" && <span className="shrink-0 rounded-md bg-indigo-600 px-2 py-0.5 text-[10.5px] font-extrabold text-white">담임 출석인정</span>}
+            {r.compareType === "hr_absent" && <span className="shrink-0 rounded-md bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10.5px] font-extrabold text-amber-900">담임 {r.hrStatus} 확인</span>}
+            {r.compareType === "ok" && <span className="shrink-0 rounded-md bg-emerald-100 px-2 py-0.5 text-[10.5px] font-extrabold text-emerald-800">정상 출석</span>}
+           </div>
+
+           <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded-lg border border-line bg-paper px-2.5 py-2">
+             <p className="text-[10px] font-bold text-slate-400">내 수업 ({effectivePeriod}교시)</p>
+             <p className={`mt-0.5 font-extrabold ${r.normMy === "출석" ? "text-emerald-700" : r.normMy === "미체크" ? "text-slate-500" : "text-red-600"}`}>
+              {r.myStatus}
+             </p>
+            </div>
+            <div className="rounded-lg border border-[#dcd3ee] bg-[#faf8fe] px-2.5 py-2">
+             <p className="text-[10px] font-bold text-brand">학급 담임 출결</p>
+             <p className={`mt-0.5 font-extrabold ${r.normHr === "출석" ? "text-emerald-700" : r.normHr === "미기록" ? "text-slate-400" : "text-ink"}`}>
+              {r.hrStatus}{r.hrRec?.subType ? `(${r.hrRec.subType})` : ""}
+             </p>
+             {r.hrRec?.memo && <p className="truncate text-[10.5px] text-slate-600">{r.hrRec.memo}</p>}
+             {lp && <p className="truncate text-[10.5px] font-bold text-rose-700">{lp.icon} {lp.shortLabel} {r.healthV.inTime}~ ({r.healthV.symptom})</p>}
+            </div>
+           </div>
+
+           {/* 3줄: 대조 추천 반영 + 상시 출결 수정 버튼 (출석 체크 후에도 언제든 변경·취소 가능!) */}
+           <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-line/70">
+            <div className="flex flex-wrap gap-1.5">
+             {r.isNotPresent && r.compareType === "approved" && (
+              <button
+               type="button"
+               onClick={() => quickApplySubjectAtt(r, "출석인정", "출석인정", r.hrRec?.memo ? `[담임] ${r.hrRec.memo}` : "담임 출석인정")}
+               className="rounded-lg bg-brand px-2.5 py-1 text-xs font-extrabold text-white"
+              >
+               ✓ 출석인정 맞추기
+              </button>
+             )}
+             {r.isNotPresent && r.compareType === "health" && lp && (
+              <button
+               type="button"
+               onClick={() => quickApplySubjectAtt(r, lp.defaultStatus, lp.defaultSubType, `[${lp.shortLabel}] ${r.healthV.inTime}~ ${r.healthV.symptom}`)}
+               className="rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-extrabold text-white"
+              >
+               {lp.icon} {lp.actionLabel} 반영
+              </button>
+             )}
+             {r.isNotPresent && r.compareType === "hr_absent" && (
+              <button
+               type="button"
+               onClick={() => quickApplySubjectAtt(r, "결과", r.hrRec?.subType || "질병", r.hrRec?.memo ? `[담임 ${r.hrStatus}] ${r.hrRec.memo}` : `담임 ${r.hrStatus} 확인`)}
+               className="rounded-lg bg-amber-600 px-2.5 py-1 text-xs font-extrabold text-white"
+              >
+               ✓ 결과({r.hrRec?.subType || "질병"}) 반영
+              </button>
+             )}
+            </div>
+
+            <div className="flex items-center gap-1 ml-auto">
+             <button
+              type="button"
+              onClick={() => quickApplySubjectAtt(r, r.normMy === "출석" ? "미기록" : "출석")}
+              className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition-colors ${r.normMy === "출석" ? "border-emerald-600 bg-emerald-600 text-white" : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}
+             >
+              출석
+             </button>
+             <button
+              type="button"
+              onClick={() => quickApplySubjectAtt(r, r.normMy === "결과" ? "미기록" : "결과", "미인정", "")}
+              className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition-colors ${r.normMy === "결과" ? "border-red-600 bg-red-600 text-white" : "border-red-300 bg-red-50 text-red-700"}`}
+             >
+              결과
+             </button>
+             <button
+              type="button"
+              onClick={() => quickApplySubjectAtt(r, r.normMy === "출석인정" ? "미기록" : "출석인정", "출석인정", "")}
+              className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition-colors ${r.normMy === "출석인정" ? "border-brand bg-brand text-white" : "border-[#dcd3ee] bg-[#faf8fe] text-brand"}`}
+             >
+              인정
+             </button>
+             {r.normMy !== "미체크" && (
+              <button
+               type="button"
+               onClick={() => quickApplySubjectAtt(r, "미기록")}
+               className="rounded-lg border border-line bg-paper px-2 py-1 text-[11px] font-bold text-slate-500 hover:text-red-600"
+              >
+               취소
+              </button>
+             )}
+            </div>
+           </div>
+          </div>
+         );
+        }) : (
+         <section className={PANEL}><Empty>{liveCheckFilter === "issues" ? `${effectivePeriod}교시 [${currentSubjClass.name}] 전원 출석 완료! (수정하려면 상단 [전체] 또는 [출석] 탭을 누르세요)` : "표시할 학생이 없습니다."}</Empty></section>
+        )}
+       </section>
+      )}
+     </>}
+    </div>;
+   })()}
+
    {page==="학생 소재 보드"&&(()=>{
+
     const hrRosters = data.schoolMasterData?.homeroomRosters || {};
     const myDept = `${data.profile.grade}-${data.profile.classroom}`;
     const isAdminRole = ["master","subadmin"].includes(currentUser?.role);
@@ -14693,43 +15499,30 @@ const renderInstallModal = () => modal?.type==="install" && (
     const patternAlerts = canViewPatternAlerts ? analyzeHealthAndAbsencePatterns(healthPatternDays, patternScopeDept, attDate) : [];
 
     return <div className="space-y-6">
-     {/* 상단 통합 헤더 & 장소별 실시간 인원 현황 */}
-     <section className={`${PANEL} p-5 border-2 border-[#dcd3ee] bg-gradient-to-r from-[#f6f2ff] via-white to-rose-50/40 flex flex-wrap items-center justify-between gap-4`}>
-      <div className="space-y-2">
-       <div className="flex flex-wrap items-center gap-1.5">
-        <Tag>📍 보건실(보건) · 위클래스(상담) · 진로상담(진로) · 학생부 · 병원외출(담임)</Tag>
-        <span className="rounded-md bg-brand px-2.5 py-0.5 text-[11px] font-extrabold text-white">
-         현재 교실 외 총 {activeVisits.length}명
-        </span>
-        {allowedLocationKeys.length > 0 ? (
-         <span className="rounded-md bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[11px] font-extrabold text-emerald-800">
-          ✅ 내 등록 권한: {isAdminRole ? "전체 5개 구역" : allowedLocationKeys.map(k => STUDENT_LOCATION_PRESETS[k].shortLabel).join("·")}
+     {/* 상단 현황 바 */}
+     <section className={`${PANEL} p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-2.5`}>
+      <div className="flex flex-wrap items-center gap-1.5">
+       <span className="rounded-md bg-brand px-2.5 py-1 text-xs font-extrabold text-white">
+        교실 외 {activeVisits.length}명
+       </span>
+       <span className={`rounded-md border px-2 py-0.5 text-[11px] font-bold ${allowedLocationKeys.length > 0 ? "bg-emerald-50 border-emerald-300 text-emerald-800" : "bg-slate-100 border-slate-200 text-slate-600"}`}>
+        {allowedLocationKeys.length > 0 ? `권한: ${isAdminRole ? "전체" : allowedLocationKeys.map(k => STUDENT_LOCATION_PRESETS[k].shortLabel).join("·")}` : "조회 전용"}
+       </span>
+       {locationKeys.map(lk => {
+        const p = STUDENT_LOCATION_PRESETS[lk];
+        const cnt = activeVisits.filter(v => (v.location || "보건실") === lk).length;
+        return cnt > 0 ? (
+         <span key={lk} className={`rounded-md border px-2 py-0.5 text-[11px] font-extrabold ${p.badgeCls}`}>
+          {p.shortLabel} {cnt}
          </span>
-        ) : (
-         <span className="rounded-md bg-slate-100 border border-slate-300 px-2 py-0.5 text-[11px] font-bold text-slate-600">
-          👀 조회 전용 (출석부 배지 연동 가능)
-         </span>
-        )}
-        {locationKeys.map(lk => {
-         const p = STUDENT_LOCATION_PRESETS[lk];
-         const cnt = activeVisits.filter(v => (v.location || "보건실") === lk).length;
-         return cnt > 0 ? (
-          <span key={lk} className={`rounded-md border px-2 py-0.5 text-[11px] font-extrabold ${p.badgeCls}`}>
-           {p.icon} {p.shortLabel} {cnt}
-          </span>
-         ) : null;
-        })}
-       </div>
-       <h2 className="text-lg font-extrabold text-ink">📍 학생 소재 실시간 보드 & 보건·결석 반복 패턴 감지</h2>
-       <p className="text-xs text-slate-600">
-        각 구역 전담 교사(보건·전문상담·진로·학생부·담임)가 학생 소재를 체크하면, <strong>모든 교과담임 출석부에 실시간 배지가 표시</strong>되고 클릭 한 번으로 <strong>질병결과 / 출석인정</strong> 처리됩니다.
-       </p>
+        ) : null;
+       })}
       </div>
-      <div className="flex w-full sm:w-auto flex-wrap items-center gap-2">
-       <input type="date" aria-label="소재 보드 조회 날짜" value={attDate} onChange={e => setAttDate(e.target.value)} className={INPUT + " w-full sm:!w-[155px] font-bold text-brand bg-white"}/>
-       <Button onClick={() => pullSharedSchoolRoster(false)}>🔄 현황 새로고침</Button>
-       <Button onClick={() => csv(`학생소재일지_${attDate}.csv`, ["날짜","소재구분","학반","번호","이름","상태","입실시각","복귀시각","교시","수업과목","사유·증상","상세메모","등록교사"], todayVisits.map(v => [attDate, v.location || "보건실", v.dept, v.number, v.name, v.status, v.inTime, v.outTime || "", `${v.period}교시`, v.subject || "", v.symptom, v.memo || "", v.teacher || ""]))}>
-        <Download className="h-4 w-4"/>일지 CSV
+      <div className="flex w-full sm:w-auto flex-wrap items-center gap-1.5">
+       <input type="date" aria-label="소재 보드 조회 날짜" value={attDate} onChange={e => setAttDate(e.target.value)} className={INPUT + " flex-1 sm:!w-[145px] !py-1.5 font-bold text-xs text-brand bg-white"}/>
+       <Button className="!min-h-[36px] !px-3 !py-1 !text-xs" onClick={() => pullSharedSchoolRoster(false)}>새로고침</Button>
+       <Button className="!min-h-[36px] !px-3 !py-1 !text-xs" onClick={() => csv(`학생소재일지_${attDate}.csv`, ["날짜","소재구분","학반","번호","이름","상태","입실시각","복귀시각","교시","수업과목","사유·증상","상세메모","등록교사"], todayVisits.map(v => [attDate, v.location || "보건실", v.dept, v.number, v.name, v.status, v.inTime, v.outTime || "", `${v.period}교시`, v.subject || "", v.symptom, v.memo || "", v.teacher || ""]))}>
+        <Download className="h-3.5 w-3.5"/>CSV
        </Button>
       </div>
      </section>
@@ -15919,26 +16712,16 @@ const renderInstallModal = () => modal?.type==="install" && (
     };
 
     return <div className="space-y-6">
-     {/* 상단 헤더 배너 (월간 자동 갱신 상태 표시) */}
-     <section className={`${PANEL} p-5 border-2 border-[#dcd3ee] bg-gradient-to-r from-[#f6f2ff] via-[#faf8fe] to-white flex flex-wrap items-center justify-between gap-4`}>
-      <div>
-       <div className="flex flex-wrap items-center gap-2">
-        <Tag>전남·광주 4개대 + 전국 거점국립대 + 서울 주요대 전 학과망</Tag>
-        <span className="rounded-md bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
-         🔄 분기별 '어디가' 자동 갱신됨 ({adigaSyncMeta?.lastSyncedDate || day()} 기준 · 총 {allCutoffs.length}개 모집단위)
-        </span>
-       </div>
-       <h2 className="mt-2 text-lg font-extrabold text-ink">📊 5등급제 내신 산출기 & 대학어디가(50%·70%컷) 전 학과 치환 상담실</h2>
-       <p className="mt-0.5 text-xs text-slate-600">
-        전남대·조선대·순천대·목포대와 서울 주요대·전국 거점국립대의 전 학과 50%·70%컷을 <strong>5등급제로 자동 치환</strong>하여 제공합니다.
-       </p>
+     {/* 상단 요약 바 */}
+     <section className={`${PANEL} p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-2.5`}>
+      <div className="flex flex-wrap items-center gap-2">
+       <Tag>5등급제 치환 DB ({allCutoffs.length}개 학과)</Tag>
+       <span className="text-xs text-slate-500">어디가 {adigaSyncMeta?.lastSyncedDate || day()} 기준</span>
       </div>
       <div className="flex flex-wrap gap-2">
-       <Button onClick={() => syncMonthlyAdigaCutoffs(false)}>
-        🔄 '어디가' 입결 최신 갱신
-       </Button>
-       <Button primary onClick={()=>print(printAdmissionReportHTML())}>
-        <Monitor className="h-4 w-4"/>대입 상담 리포트 인쇄
+       <Button className="!min-h-[36px] !px-3 !py-1.5 !text-xs" onClick={() => syncMonthlyAdigaCutoffs(false)}>입결 갱신</Button>
+       <Button primary className="!min-h-[36px] !px-3 !py-1.5 !text-xs" onClick={()=>print(printAdmissionReportHTML())}>
+        <Monitor className="h-3.5 w-3.5"/>리포트 인쇄
        </Button>
       </div>
      </section>
@@ -16390,7 +17173,9 @@ const renderInstallModal = () => modal?.type==="install" && (
       ...e,
       id: e.id || `school-acad-${e.date}-${idx}`,
       time: isText(e.time) && e.time.trim() ? e.time.trim() : "09:00",
-      category: "학교학사력"
+      category: "학교학사력",
+      dayType: isText(e.dayType) ? e.dayType : "일반",
+      activePeriods: Array.isArray(e.activePeriods) ? Array.from(new Set(e.activePeriods.map(Number).filter(n=>n>=1&&n<=7))).sort((a,b)=>a-b) : []
      }));
      update(d => {
       const personalOnly = (d.events || []).filter(e => !["학교학사력","학사일정"].includes(e.category));
@@ -16517,24 +17302,16 @@ const renderInstallModal = () => modal?.type==="install" && (
     ])).sort((a,b) => a.localeCompare(b, "ko"));
 
     return <div className="space-y-5">
-     {/* 상단 관리자 데이터 편집 센터 헤더 */}
-     <section className={`${PANEL} p-5 border-2 border-brand bg-gradient-to-r from-[#f6f2ff] via-[#faf8fe] to-white flex flex-wrap items-center justify-between gap-4`}>
-      <div className="space-y-1.5">
-       <div className="flex flex-wrap items-center gap-2">
-        <Tag>{isSuperMaster ? "👑 총괄 마스터 전용 편집기" : "🏫 학교 중간 관리자 전용 편집기"}</Tag>
-        <span className="rounded-md bg-brand px-2.5 py-0.5 text-[11px] font-extrabold text-white">
-         관리 대상 학교: {managedSchool}
-        </span>
-       </div>
-       <h2 className="text-lg font-extrabold text-ink">⚙️ 업로드된 학교 데이터 실시간 수정 · 관리</h2>
-       <p className="text-xs text-slate-600">
-        엑셀을 다시 올리지 않고도 <strong>학사력 · 담임 배정 · 교사별 시간표 · 학급별 명단 · 선택과목 수업장소</strong>를 화면에서 바로 수정하면 <strong>[{managedSchool}]</strong> 전 교사 화면에 즉시 반영됩니다.
-       </p>
+     {/* 상단 관리자 바 */}
+     <section className={`${PANEL} p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-2.5`}>
+      <div className="flex flex-wrap items-center gap-2">
+       <span className="rounded-md bg-brand px-2.5 py-1 text-xs font-extrabold text-white">{managedSchool}</span>
+       <span className="text-xs font-semibold text-slate-600">수정 시 전 교사 화면에 실시간 반영</span>
       </div>
       <div className="flex flex-wrap gap-2">
-       <Button onClick={() => pullSharedSchoolRoster(false, managedSchool)}>🔄 최신 데이터 불러오기</Button>
-       <Button primary onClick={async () => { await loadAccountsChannel(); setModal({ type: "masterAdmin" }); }}>
-        👑 업로드·계정승인 콘솔
+       <Button className="!min-h-[36px] !px-3 !py-1.5 !text-xs" onClick={() => pullSharedSchoolRoster(false, managedSchool)}>새로고침</Button>
+       <Button primary className="!min-h-[36px] !px-3 !py-1.5 !text-xs" onClick={async () => { await loadAccountsChannel(); setModal({ type: "masterAdmin" }); }}>
+        업로드·계정승인 콘솔
        </Button>
       </div>
      </section>
@@ -16572,30 +17349,82 @@ const renderInstallModal = () => modal?.type==="install" && (
         </Button>
        </div>
 
-       {/* 새 학사일정 1건 빠른 추가 */}
-       <form className="grid gap-2.5 rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-3.5 sm:grid-cols-[150px_115px_1fr_auto] items-end" onSubmit={async e => {
+       {/* 새 학사일정 1건 빠른 추가 (운영유형: 일반·재량휴업일·단축수업·정기고사 지정 가능) */}
+       <form className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] p-3.5 space-y-2.5" onSubmit={async e => {
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
         const dt = String(fd.get("date") || "").trim();
         const tm = String(fd.get("time") || "09:00").trim();
         const tt = String(fd.get("title") || "").trim();
         if(!validDate(dt) || !tt){ notify("날짜와 학사일정 행사명을 정확히 입력해 주세요."); return; }
-        const nextList = [...academicEventsAll, { id: "acad-" + uid(), date: dt, time: tm || "09:00", title: tt, category: "학교학사력" }];
-        await saveAcademicListToSchool(nextList, `📅 [${dt}] '${tt}' 학사일정을 추가하여 전 교사 달력에 배포했습니다!`);
+        const periodsToSave = ["단축수업","정기고사"].includes(newAcadDayType)
+         ? (newAcadPeriods.length > 0 ? newAcadPeriods : (newAcadDayType === "정기고사" ? [1,2,3] : [1,2,3,4]))
+         : [];
+        const nextList = [...academicEventsAll, {
+         id: "acad-" + uid(),
+         date: dt,
+         time: tm || "09:00",
+         title: tt,
+         category: "학교학사력",
+         dayType: newAcadDayType,
+         activePeriods: periodsToSave
+        }];
+        await saveAcademicListToSchool(nextList, `📅 [${dt}] '${tt}'(${newAcadDayType}) 일정을 추가해 전 교사 달력에 반영했습니다!`);
         e.currentTarget.reset();
+        setNewAcadDayType("일반");
+        setNewAcadPeriods([1,2,3,4]);
        }}>
-        <Field label="날짜" id="adm-acad-date">
-         <input id="adm-acad-date" name="date" type="date" required defaultValue={day()} className={INPUT + " !py-2 bg-white text-xs font-bold"}/>
-        </Field>
-        <Field label="시간" id="adm-acad-time">
-         <input id="adm-acad-time" name="time" type="time" defaultValue="09:00" className={INPUT + " !py-2 bg-white text-xs font-bold"}/>
-        </Field>
-        <Field label="새 학사일정 행사명" id="adm-acad-title">
-         <input id="adm-acad-title" name="title" required placeholder="예: 1학기 2차 지필평가 / 학부모 공개수업의 날" className={INPUT + " !py-2 bg-white text-xs font-bold"}/>
-        </Field>
-        <button type="submit" className="min-h-[40px] rounded-xl bg-brand px-4 text-xs font-extrabold text-white shadow-sm hover:bg-[#54419f]">
-         + 학사일정 추가
-        </button>
+        <div className="grid gap-2.5 sm:grid-cols-[145px_105px_135px_1fr_auto] items-end">
+         <Field label="날짜" id="adm-acad-date">
+          <input id="adm-acad-date" name="date" type="date" required defaultValue={day()} className={INPUT + " !py-2 bg-white text-xs font-bold"}/>
+         </Field>
+         <Field label="시간" id="adm-acad-time">
+          <input id="adm-acad-time" name="time" type="time" defaultValue="09:00" className={INPUT + " !py-2 bg-white text-xs font-bold"}/>
+         </Field>
+         <Field label="출결 운영유형" id="adm-acad-daytype">
+          <select
+           id="adm-acad-daytype"
+           value={newAcadDayType}
+           onChange={e => {
+            const nextT = e.target.value;
+            setNewAcadDayType(nextT);
+            if(nextT === "정기고사") setNewAcadPeriods([1,2,3]);
+            else if(nextT === "단축수업") setNewAcadPeriods([1,2,3,4]);
+           }}
+           className={INPUT + " !py-2 bg-white text-xs font-extrabold text-brand"}
+          >
+           <option value="일반">일반 (1~7교시)</option>
+           <option value="재량휴업일">🚫 재량휴업일</option>
+           <option value="단축수업">⏱️ 단축수업</option>
+           <option value="정기고사">📝 정기고사</option>
+          </select>
+         </Field>
+         <Field label="새 학사일정 행사명" id="adm-acad-title">
+          <input id="adm-acad-title" name="title" required placeholder="예: 1학기 2차 지필평가 / 재량휴업일" className={INPUT + " !py-2 bg-white text-xs font-bold"}/>
+         </Field>
+         <button type="submit" className="min-h-[40px] rounded-xl bg-brand px-4 text-xs font-extrabold text-white shadow-sm hover:bg-[#54419f]">
+          + 일정 추가
+         </button>
+        </div>
+
+        {["단축수업","정기고사"].includes(newAcadDayType) && (
+         <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-[#dcd3ee] bg-white px-3 py-2 text-xs">
+          <span className="font-extrabold text-brand mr-1">운영 교시 선택:</span>
+          {[1,2,3,4,5,6,7].map(p => {
+           const on = newAcadPeriods.includes(p);
+           return (
+            <button
+             type="button"
+             key={p}
+             onClick={() => setNewAcadPeriods(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p].sort((a,b) => a - b))}
+             className={`rounded-md border px-2.5 py-1 text-[11px] font-extrabold transition-colors ${on ? "border-brand bg-brand text-white" : "border-line bg-paper text-slate-500"}`}
+            >
+             {p}교시
+            </button>
+           );
+          })}
+         </div>
+        )}
        </form>
 
        {/* 월별 필터 & 검색 */}
@@ -16620,55 +17449,111 @@ const renderInstallModal = () => modal?.type==="install" && (
 
        {filteredAcademicEvents.length > 0 ? (
         <div className="max-h-[520px] overflow-y-auto rounded-xl border border-line divide-y divide-line">
-         {filteredAcademicEvents.map(ev => (
-          <div key={ev.id} className="grid gap-2 p-3 sm:grid-cols-[150px_110px_1fr_auto] items-center hover:bg-paper/40">
-           <input
-            type="date"
-            value={ev.date}
-            onChange={e => {
-             const nextDate = e.target.value;
-             if(!validDate(nextDate)) return;
-             const nextList = academicEventsAll.map(x => x.id === ev.id ? { ...x, date: nextDate } : x);
-             saveAcademicListToSchool(nextList, `날짜를 ${nextDate}(으)로 수정했습니다.`);
-            }}
-            className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-bold text-brand"
-           />
-           <input
-            type="time"
-            value={ev.time || "09:00"}
-            onChange={e => {
-             const nextList = academicEventsAll.map(x => x.id === ev.id ? { ...x, time: e.target.value || "09:00" } : x);
-             saveAcademicListToSchool(nextList, "시간을 수정했습니다.");
-            }}
-            className="rounded-lg border border-line bg-white px-2 py-1.5 text-xs font-semibold text-slate-600"
-           />
-           <input
-            type="text"
-            defaultValue={ev.title}
-            key={`acad-title-${ev.id}-${ev.title}`}
-            onBlur={e => {
-             const val = e.target.value.trim();
-             if(val && val !== ev.title){
-              const nextList = academicEventsAll.map(x => x.id === ev.id ? { ...x, title: val } : x);
-              saveAcademicListToSchool(nextList, `'${val}'(으)로 학사일정을 수정했습니다.`);
-             }
-            }}
-            onKeyDown={e => { if(e.key === "Enter") e.currentTarget.blur(); }}
-            className="rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-bold text-ink focus:border-brand"
-           />
-           <button
-            type="button"
-            onClick={() => {
-             if(!confirm(`[${ev.date}] '${ev.title}' 학사일정을 전 교사 달력에서 삭제할까요?`)) return;
-             const nextList = academicEventsAll.filter(x => x.id !== ev.id);
-             saveAcademicListToSchool(nextList, `'${ev.title}' 학사일정을 삭제했습니다.`);
-            }}
-            className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100"
-           >
-            <Trash2 className="h-3.5 w-3.5"/>
-           </button>
-          </div>
-         ))}
+         {filteredAcademicEvents.map(ev => {
+          const curDayType = ev.dayType || "일반";
+          const curPeriods = Array.isArray(ev.activePeriods) && ev.activePeriods.length > 0
+           ? ev.activePeriods
+           : (curDayType === "정기고사" ? [1,2,3] : [1,2,3,4]);
+          return (
+           <div key={ev.id} className="p-3 space-y-2 hover:bg-paper/40">
+            <div className="grid gap-2 sm:grid-cols-[140px_100px_130px_1fr_auto] items-center">
+             <input
+              type="date"
+              value={ev.date}
+              onChange={e => {
+               const nextDate = e.target.value;
+               if(!validDate(nextDate)) return;
+               const nextList = academicEventsAll.map(x => x.id === ev.id ? { ...x, date: nextDate } : x);
+               saveAcademicListToSchool(nextList, `날짜를 ${nextDate}(으)로 수정했습니다.`);
+              }}
+              className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-bold text-brand"
+             />
+             <input
+              type="time"
+              value={ev.time || "09:00"}
+              onChange={e => {
+               const nextList = academicEventsAll.map(x => x.id === ev.id ? { ...x, time: e.target.value || "09:00" } : x);
+               saveAcademicListToSchool(nextList, "시간을 수정했습니다.");
+              }}
+              className="rounded-lg border border-line bg-white px-2 py-1.5 text-xs font-semibold text-slate-600"
+             />
+             <select
+              aria-label="출결 운영유형"
+              value={curDayType}
+              onChange={e => {
+               const nextType = e.target.value;
+               const nextP = nextType === "정기고사" ? [1,2,3] : nextType === "단축수업" ? [1,2,3,4] : [];
+               const nextList = academicEventsAll.map(x => x.id === ev.id ? { ...x, dayType: nextType, activePeriods: nextP } : x);
+               saveAcademicListToSchool(nextList, `[${ev.date}] 운영유형을 '${nextType}'(으)로 변경했습니다.`);
+              }}
+              className={`rounded-lg border px-2 py-1.5 text-xs font-extrabold ${
+               curDayType === "재량휴업일"
+                ? "border-red-300 bg-red-50 text-red-700"
+                : curDayType === "정기고사"
+                ? "border-indigo-300 bg-indigo-50 text-indigo-800"
+                : curDayType === "단축수업"
+                ? "border-amber-300 bg-amber-50 text-amber-900"
+                : "border-line bg-white text-slate-600"
+              }`}
+             >
+              <option value="일반">일반 (1~7교시)</option>
+              <option value="재량휴업일">🚫 재량휴업일</option>
+              <option value="단축수업">⏱️ 단축수업</option>
+              <option value="정기고사">📝 정기고사</option>
+             </select>
+             <input
+              type="text"
+              defaultValue={ev.title}
+              key={`acad-title-${ev.id}-${ev.title}`}
+              onBlur={e => {
+               const val = e.target.value.trim();
+               if(val && val !== ev.title){
+                const nextList = academicEventsAll.map(x => x.id === ev.id ? { ...x, title: val } : x);
+                saveAcademicListToSchool(nextList, `'${val}'(으)로 학사일정을 수정했습니다.`);
+               }
+              }}
+              onKeyDown={e => { if(e.key === "Enter") e.currentTarget.blur(); }}
+              className="rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-bold text-ink focus:border-brand"
+             />
+             <button
+              type="button"
+              onClick={() => {
+               if(!confirm(`[${ev.date}] '${ev.title}' 학사일정을 전 교사 달력에서 삭제할까요?`)) return;
+               const nextList = academicEventsAll.filter(x => x.id !== ev.id);
+               saveAcademicListToSchool(nextList, `'${ev.title}' 학사일정을 삭제했습니다.`);
+              }}
+              className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100"
+             >
+              <Trash2 className="h-3.5 w-3.5"/>
+             </button>
+            </div>
+
+            {["단축수업","정기고사"].includes(curDayType) && (
+             <div className="flex flex-wrap items-center gap-1.5 pl-1 text-[11px]">
+              <span className="font-bold text-slate-500">운영 교시:</span>
+              {[1,2,3,4,5,6,7].map(p => {
+               const on = curPeriods.includes(p);
+               return (
+                <button
+                 type="button"
+                 key={p}
+                 onClick={() => {
+                  const nextP = on ? curPeriods.filter(x => x !== p) : [...curPeriods, p].sort((a,b) => a - b);
+                  if(nextP.length === 0){ notify("최소 1개 교시는 선택되어야 합니다."); return; }
+                  const nextList = academicEventsAll.map(x => x.id === ev.id ? { ...x, activePeriods: nextP } : x);
+                  saveAcademicListToSchool(nextList, `[${ev.date}] 운영 교시를 ${nextP.join("·")}교시로 변경했습니다.`);
+                 }}
+                 className={`rounded-md border px-2 py-0.5 font-extrabold transition-colors ${on ? "border-brand bg-brand text-white" : "border-line bg-white text-slate-400"}`}
+                >
+                 {p}교시
+                </button>
+               );
+              })}
+             </div>
+            )}
+           </div>
+          );
+         })}
         </div>
        ) : (
         <Empty>표시할 학교 학사일정이 없습니다. 위 입력창에서 추가하거나 학사력 엑셀을 업로드해 주세요.</Empty>
@@ -17081,15 +17966,15 @@ const renderInstallModal = () => modal?.type==="install" && (
 </footer>
    </main>
 
-   {/* 📱 모바일 전용 하단 고정 네비게이션 바 (일정·할일 통합 + 과목설계 추가 + 마스터 계정승인 탭) */}
+   {/* 📱 모바일 전용 하단 고정 네비게이션 바 (홈 · 출결 · 학생상황 · 일정·할일 + 관리자 계정승인) */}
     <nav aria-label="모바일 하단 빠른 메뉴" className={`fixed bottom-0 inset-x-0 z-30 grid ${["master","subadmin"].includes(currentUser?.role) ? "grid-cols-5" : "grid-cols-4"} h-[calc(62px+env(safe-area-inset-bottom,0px))] items-center border-t border-[#dcd3ee] bg-white/95 px-2 pt-1 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur lg:hidden shadow-[0_-4px_16px_rgba(35,32,65,0.08)]`}>
      {[
       ["오늘의 교무실", "홈", Home],
       ["출결·제출물 관리", "출결", User],
-      ["할 일 목록", "일정·할일", Calendar],
-      ["학점제 과목 설계실", "과목설계", Target]
+      ["실시간 학생 상황", "학생상황", Eye],
+      ["할 일 목록", "일정·할일", Calendar]
      ].map(([targetPage, shortLabel, Icon]) => {
-     const active = (targetPage === "할 일 목록" ? ["할 일 목록","나의 일정"].includes(page) : page === targetPage) && modal?.type !== "masterAdmin";
+     const active = (targetPage === "할 일 목록" || targetPage === "일정·할 일" ? ["일정·할 일","할 일 목록","나의 일정"].includes(page) : page === targetPage) && modal?.type !== "masterAdmin";
      return (
       <button
        type="button"
@@ -18041,11 +18926,11 @@ const renderInstallModal = () => modal?.type==="install" && (
         </p>
        </div>
        <div className="flex w-full lg:w-auto flex-wrap gap-2 max-w-full">
-        <Button primary className="!min-h-[38px] !px-3.5 !text-xs max-w-full" onClick={downloadCustomSchoolStandardExcel}>
-         <Download className="h-4 w-4"/>📥 ① 1단계 기본양식 다운로드 (명단·시간표·선택과목)
+        <Button primary className="!min-h-[36px] !px-3 !text-xs" onClick={downloadCustomSchoolStandardExcel}>
+         <Download className="h-3.5 w-3.5"/>1단계 양식 (명단·시간표)
         </Button>
-        <Button className="!min-h-[38px] !px-3.5 !text-xs !bg-emerald-600 !text-white !border-0 hover:!bg-emerald-700" onClick={downloadElectiveRoomExcelTemplate}>
-         <Download className="h-4 w-4"/>📥 ② 2단계 장소양식 다운로드 (2·3학년 선택과목 장소전용)
+        <Button className="!min-h-[36px] !px-3 !text-xs !bg-emerald-600 !text-white !border-0 hover:!bg-emerald-700" onClick={downloadElectiveRoomExcelTemplate}>
+         <Download className="h-3.5 w-3.5"/>2단계 양식 (수업장소)
         </Button>
        </div>
       </div>
@@ -18117,194 +19002,16 @@ const renderInstallModal = () => modal?.type==="install" && (
      </div>
     </section>
 
-    {/* 1-B. [엑셀 재업로드 없이 웹에서 바로 부분 수정] 학급별 담임 배정 & 교사별 시간표·강의실 실시간 수정기 */}
-    <section className="rounded-xl border-2 border-[#dcd3ee] bg-[#faf8fe] p-5 space-y-5">
-     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#dcd3ee] pb-3">
-      <div>
-       <Tag>⚡ 엑셀 재업로드 없이 웹에서 바로 수정</Tag>
-       <h3 className="mt-1.5 text-base font-bold text-ink">🛠️ 학급별 담임교사 · 교사별 시간표 · 수업장소(강의실) 즉시 수정기</h3>
-       <p className="mt-0.5 text-xs text-slate-600">담임이 잘못 입력되었거나 특정 선생님의 시간표·강의실만 일부 바뀔 때, 아래 칸에서 바로 고치면 전교생·전교사 화면에 즉시 반영됩니다.</p>
-      </div>
-     </div>
-
-     {/* (1) 학급별 담임교사 한눈에 확인 및 즉시 변경 */}
-     <div className="rounded-xl border border-[#dcd3ee] bg-white p-4 space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-       <h4 className="text-xs font-extrabold text-brand">🏫 ① 학급별 담임교사 배정 즉시 수정 (이름을 수정하거나 비우면 즉시 반영됩니다)</h4>
-       <span className="text-[11px] text-slate-500">현재 배정: {Object.keys(data.schoolMasterData?.homeroomTeachers||{}).length}개 학급</span>
-      </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-7">
-       {[1,2,3].flatMap(g => Array.from({length: Math.max(1, Number(templateConfig[`g${g}`])||7)}, (_, i) => `${g}-${i+1}`)).map(deptKey => {
-        const curT = data.schoolMasterData?.homeroomTeachers?.[deptKey] || "";
-        return (
-         <div key={deptKey} className="rounded-lg border border-line bg-paper p-2 flex flex-col gap-1">
-          <span className="text-[11px] font-extrabold text-brand">{deptKey}반 담임</span>
-          <input
-           list="master-all-teachers-datalist"
-           defaultValue={curT}
-           key={`${deptKey}-${curT}`}
-           placeholder="교사명 입력"
-           className="w-full rounded border border-[#d5cce8] bg-white px-2 py-1 text-xs font-bold text-ink focus:border-brand"
-           onBlur={async e => {
-            const nextT = cleanMasterLabel(e.target.value.trim());
-            if(nextT === curT) return;
-            const prevMaster = live.current.schoolMasterData || {};
-            const nextHrMap = { ...(prevMaster.homeroomTeachers || {}) };
-            if(!nextT) delete nextHrMap[deptKey];
-            else nextHrMap[deptKey] = nextT;
-            const updatedMaster = { ...prevMaster, homeroomTeachers: nextHrMap, updatedAt: new Date().toISOString() };
-            update(d => ({ ...d, schoolMasterData: updatedMaster }));
-            await pushSharedSchoolRoster({ schoolMasterData: updatedMaster }, managedSchool);
-
-            const [gNum, cNum] = deptKey.split("-").map(Number);
-            if(accountsList.length > 0){
-             const nextAccs = accountsList.map(a => {
-              if((a.school || "광영고등학교") !== managedSchool) return a;
-              const aName = cleanMasterLabel(a.name);
-              if(nextT && aName === nextT) return { ...a, homeroom: true, grade: gNum, classroom: cNum };
-              if(curT && aName === curT && a.grade === gNum && a.classroom === cNum) return { ...a, homeroom: false };
-              return a;
-             });
-             await saveAccountsChannel(nextAccs);
-            }
-            notify(`[${deptKey}반] 담임교사를 ${nextT ? `'${nextT}' 선생님으로 변경` : "해제"}하여 즉시 반영했습니다!`);
-           }}
-          />
-         </div>
-        );
-       })}
-      </div>
-      <datalist id="master-all-teachers-datalist">
-       {Array.from(new Set([...Object.keys(data.schoolMasterData?.teachers||{}), ...visibleAccounts.map(a=>cleanMasterLabel(a.name)).filter(Boolean)])).sort((a,b)=>a.localeCompare(b,"ko")).map(t => (
-        <option key={t} value={t}/>
-       ))}
-      </datalist>
-     </div>
-
-     {/* (2) 교사별 주간 시간표 · 과목명 · 수업장소(강의실) 1칸씩 즉시 수정 */}
-     <div className="rounded-xl border border-[#dcd3ee] bg-white p-4 space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-       <h4 className="text-xs font-extrabold text-ink">📅 ② 교사별 시간표 · 과목명 · 수업장소(강의실) 부분 수정</h4>
-       <div className="flex flex-wrap items-center gap-2">
-        <select
-         className="rounded-lg border border-[#dcd3ee] bg-[#faf8fe] px-3 py-1.5 text-xs font-bold text-brand"
-         value={selectedMasterTeacher}
-         onChange={e => setSelectedMasterTeacher(e.target.value)}
-        >
-         <option value="">수정할 교사 선택 ({Object.keys(data.schoolMasterData?.teachers||{}).length}명)</option>
-         {Object.keys(data.schoolMasterData?.teachers||{}).sort((a,b)=>a.localeCompare(b,"ko")).map(tName => (
-          <option key={tName} value={tName}>{tName} 선생님 ({(data.schoolMasterData.teachers[tName]||[]).length}시간)</option>
-         ))}
-        </select>
-        <Button className="!min-h-[32px] !px-2.5 !py-1 !text-xs" onClick={async()=>{
-         const newT = prompt("새로 시간표를 추가할 선생님 성함을 입력하세요:");
-         if(!newT || !newT.trim()) return;
-         const cleanT = cleanMasterLabel(newT.trim());
-         const prevMaster = live.current.schoolMasterData || {};
-         const nextTeachers = { ...(prevMaster.teachers || {}), [cleanT]: prevMaster.teachers?.[cleanT] || [] };
-         const updatedMaster = { ...prevMaster, teachers: nextTeachers, updatedAt: new Date().toISOString() };
-         update(d => ({ ...d, schoolMasterData: updatedMaster }));
-         setSelectedMasterTeacher(cleanT);
-         await pushSharedSchoolRoster({ schoolMasterData: updatedMaster }, managedSchool);
-         notify(`${cleanT} 선생님을 시간표 목록에 추가했습니다.`);
-        }}>+ 새 교사 추가</Button>
-       </div>
-      </div>
-
-      {selectedMasterTeacher && (()=>{
-       const tSlots = [...(data.schoolMasterData?.teachers?.[selectedMasterTeacher] || [])].sort((a,b) => {
-        const dOrder = {월:1,화:2,수:3,목:4,금:5};
-        return (dOrder[a.day]||9) - (dOrder[b.day]||9) || Number(a.period) - Number(b.period);
-       });
-       const saveTeacherSlots = async (nextSlotArray, msg="시간표 변경사항을 즉시 반영했습니다.") => {
-        const prevMaster = live.current.schoolMasterData || {};
-        const nextTeachers = { ...(prevMaster.teachers || {}), [selectedMasterTeacher]: nextSlotArray };
-        const updatedMaster = { ...prevMaster, teachers: nextTeachers, updatedAt: new Date().toISOString() };
-        update(d => ({ ...d, schoolMasterData: updatedMaster }));
-        await pushSharedSchoolRoster({ schoolMasterData: updatedMaster }, managedSchool);
-        if(cleanMasterLabel(currentUser?.name || data.profile.teacher) === selectedMasterTeacher){
-         applyTeacherScheduleFromMaster(selectedMasterTeacher, updatedMaster, true);
-        }
-        notify(`[${selectedMasterTeacher} 선생님] ${msg}`);
-       };
-
-       return (
-        <div className="space-y-2.5 pt-1">
-         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 max-h-64 overflow-y-auto p-1">
-          {tSlots.map((sl, idx) => (
-           <div key={`${sl.day}-${sl.period}-${idx}`} className="flex items-center gap-1.5 rounded-lg border border-line bg-paper p-2 text-xs">
-            <select
-             value={sl.day}
-             onChange={e => {
-              const next = tSlots.map((x, i) => i === idx ? { ...x, day: e.target.value } : x);
-              saveTeacherSlots(next);
-             }}
-             className="rounded border border-line bg-white px-1.5 py-1 font-bold text-brand"
-            >
-             {["월","화","수","목","금"].map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <select
-             value={sl.period}
-             onChange={e => {
-              const next = tSlots.map((x, i) => i === idx ? { ...x, period: Number(e.target.value) } : x);
-              saveTeacherSlots(next);
-             }}
-             className="rounded border border-line bg-white px-1.5 py-1 font-bold"
-            >
-             {[1,2,3,4,5,6,7].map(p => <option key={p} value={p}>{p}교시</option>)}
-            </select>
-            <input
-             defaultValue={sl.subject}
-             key={`subj-${sl.subject}`}
-             placeholder="과목명"
-             title="과목명 수정 (포커스 해제 시 자동 저장)"
-             onBlur={e => {
-              const val = e.target.value.trim();
-              if(val && val !== sl.subject){
-               const next = tSlots.map((x, i) => i === idx ? { ...x, subject: val } : x);
-               saveTeacherSlots(next);
-              }
-             }}
-             className="min-w-0 flex-1 rounded border border-line bg-white px-2 py-1 font-bold text-ink"
-            />
-            <input
-             defaultValue={sl.room || ""}
-             key={`room-${sl.room}`}
-             placeholder="장소(예:3-5)"
-             title="강의실·학반 수정 (포커스 해제 시 자동 저장)"
-             onBlur={e => {
-              const val = e.target.value.trim();
-              if(val !== (sl.room || "")){
-               const next = tSlots.map((x, i) => i === idx ? { ...x, room: val } : x);
-               saveTeacherSlots(next);
-              }
-             }}
-             className="w-20 rounded border border-[#dcd3ee] bg-white px-2 py-1 text-center font-bold text-emerald-700"
-            />
-            <button
-             type="button"
-             onClick={() => saveTeacherSlots(tSlots.filter((_, i) => i !== idx), `${sl.day}요일 ${sl.period}교시 수업을 삭제했습니다.`)}
-             className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-             title="이 교시 삭제"
-            >
-             <Trash2 className="h-3.5 w-3.5"/>
-            </button>
-           </div>
-          ))}
-         </div>
-         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2">
-          <span className="text-[11px] text-slate-500">💡 과목명이나 장소(예: <code>3-5</code>, <code>미술실</code>)를 고친 뒤 빈 곳을 클릭하면 즉시 자동 저장됩니다.</span>
-          <Button className="!min-h-[32px] !px-3 !py-1 !text-xs" primary onClick={() => {
-           saveTeacherSlots([...tSlots, { day: "월", period: 1, subject: "과목명입력", room: "1-1" }], "새 수업 교시를 추가했습니다.");
-          }}>+ 수업 교시 추가</Button>
-         </div>
-        </div>
-       );
-      })()}
-     </div>
-    </section>
+    {/* 1-B. 개별 수정은 [학교 데이터 관리] 전용 페이지로 일원화 */}
+    <div className="rounded-xl border border-[#dcd3ee] bg-[#faf8fe] px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+     <span className="text-xs font-bold text-ink">학사력 · 담임배정 · 시간표 · 명단 · 수업장소 개별 수정은 전용 메뉴에서 관리합니다.</span>
+     <Button className="!min-h-[34px] !px-3 !py-1 !text-xs border-brand bg-white text-brand font-bold" onClick={()=>{setModal(null);go("학교 데이터 관리");}}>
+      학교 데이터 관리 열기 →
+     </Button>
+    </div>
 
     {/* 2. 교사 계정 승인 · 담임/비담임 원클릭 전환 · 학급 배정 수정 · 권한 및 비밀번호 초기화 */}
+
     <section className="rounded-xl border-2 border-brand bg-white p-5 space-y-4">
      <div className="flex flex-wrap items-center justify-between gap-2">
       <div>
@@ -18378,23 +19085,23 @@ const renderInstallModal = () => modal?.type==="install" && (
          선생님들께 안내할 공통 초기 비밀번호를 입력하세요.
         </p>
        </Field>
-       <Field label="등록할 교사 명단 (한 줄에 한 명 · 형식: '성함' 또는 '성함, 학반' 또는 '성함, 별도아이디, 학반')" id="bulk-acc-text">
+       <Field label="교사 명단 (한 줄에 한 명)" id="bulk-acc-text">
         <textarea
          id="bulk-acc-text"
          rows="4"
          value={bulkAccText}
          onChange={e => setBulkAccText(e.target.value)}
-         placeholder={"홍길동, 1-1\n김교사, 2-3\n이교사\n박동명, park02, 3-1"}
+         placeholder={"성함 또는 성함, 학반 (예:\n홍길동, 1-1\n김교사\n김민수, 김민수2, 3-1)"}
          className={INPUT + " bg-white font-mono !text-xs"}
         />
        </Field>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
        <span className="text-[11px] text-slate-500">
-        💡 동명이인이 있을 때만 두 번째 칸에 구분 아이디(예: <code>김민수, 김민수2</code>)를 적어주세요.
+        동명이인은 <code>김민수, 김민수2</code>처럼 구분 아이디를 적어주세요.
        </span>
        <Button primary disabled={authBusy || !bulkAccText.trim()} onClick={() => handleBulkCreateAccounts(managedSchool)}>
-        <Plus className="h-4 w-4"/>✨ [{managedSchool}] 계정 일괄 생성 (초기비번: {bulkDefaultPw})
+        <Plus className="h-4 w-4"/>계정 일괄 생성 (비번 {bulkDefaultPw})
        </Button>
       </div>
      </div>
