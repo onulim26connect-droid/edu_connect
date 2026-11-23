@@ -2857,6 +2857,7 @@
   const [genCategory, setGenCategory] = useState("사회");
   const [genTopic, setGenTopic] = useState("");
   const autoFetchedRef = useRef(false);
+  const qbAutoFetchedRef = useRef(false);
   
   const [libraryLevel,setLibraryLevel]=useState("전체"),[libraryCategory,setLibraryCategory]=useState("전체"),[newsSearch,setNewsSearch]=useState("");
   const [cloudURL,setCloudURL]=useState(""),[cloudKey,setCloudKey]=useState(""),[code,setCode]=useState(""),[cloudStatus,setCloudStatus]=useState("이 기기에 저장"),[cloudError,setCloudError]=useState(""),[connected,setConnected]=useState(false),[conflict,setConflict]=useState(false),[cloudBusy,setCloudBusy]=useState(false),[showSQL,setShowSQL]=useState(false);
@@ -3279,13 +3280,14 @@
     if(absentSet.has(normHr) && absentSet.has(normSb)) return false;
     return true;
     }
-    // 개인 사물함 저장 시 학교 공용 데이터(시간표·전교명단·공용출결·학사력)를 제외해 불필요한 재저장을 원천 차단
+    // 개인 사물함 저장 시 학교 공용 데이터(시간표·전교명단·공용출결·학사력·드라이브 기출본문)를 제외해 불필요한 재저장을 원천 차단
     function makePersonalSyncPayload(src){
     const { __sharedPeriod, __sharedHomeroom, __sharedHealthRoom, ...personalClassAtt } = (src?.classAttendance || {});
     return {
       ...src,
       events: (src?.events || []).filter(ev => ev.category !== "학교학사력"),
       classAttendance: personalClassAtt,
+      questionBank: { sets: [], usedHistory: src?.questionBank?.usedHistory || {} },
       electiveMatrix: { headers: [], rows: [], periodSlotMap: src?.electiveMatrix?.periodSlotMap || {} },
       schoolMasterData: {
       teachers: {}, classTimetables: {}, homeroomRosters: {}, electiveRosters: {},
@@ -5934,7 +5936,7 @@
   const [qbTab, setQbTab] = useState("generator"); // "generator" | "upload" | "library"
   const [qbPdf, setQbPdf] = useState(null);
   const [qbMeta, setQbMeta] = useState({ year:"2026", examType:"6월 모의평가", grade:"고1", subject:"국어(독서)", defaultCategory:"인문" });
-  const [qbFilter, setQbFilter] = useState({ targetKey:"우리반 (기본)", subject:"국어(독서)", categories:["인문","사회","과학","기술","예술"], setCount:2, excludeUsed:true, includeManualIds:[], paperTitle:"2026학년도 기출 재구성 실전 모의고사" });
+  const [qbFilter, setQbFilter] = useState({ targetKey:"우리반 (기본)", subject:"국어(독서)", categories:["인문","사회","과학","기술","예술"], difficulties:["상","중","하"], setCount:2, excludeUsed:true, includeManualIds:[], paperTitle:"2026학년도 기출 재구성 실전 모의고사" });
   const [generatedPaper, setGeneratedPaper] = useState(null);
 
   const keyRef=useRef(),frameRef=useRef(),importRef=useRef(),live=useRef(data),request=useRef(),requestId=useRef(0),aiLock=useRef(false),modelAbort=useRef(),modelSeq=useRef(0),fileSeq=useRef(0),blocked=useRef(false),listedKey=useRef("");
@@ -7973,11 +7975,16 @@
     // 1) 수동으로 반드시 포함하도록 체크한 지문 세트
     const forcedSets = allSets.filter(s => manualSet.has(s.id));
 
-    // 2) 조건에 맞는 후보 풀 필터링 (기출제 제외 옵션이 켜져 있으면 usedSet에 없는 문제만 추출)
+    // 2) 조건에 맞는 후보 풀 필터링 (과목·세부영역·난이도·기출제 제외)
+    const activeDiffs = Array.isArray(qbFilter.difficulties) ? qbFilter.difficulties : [];
     const candidatePool = allSets.filter(s => {
     if(manualSet.has(s.id)) return false;
     if(qbFilter.subject !== "전체" && s.subject !== qbFilter.subject) return false;
     if(qbFilter.categories.length > 0 && !qbFilter.categories.includes(s.category)) return false;
+    if(activeDiffs.length > 0){
+      const sDiff = s.difficulty || (s.items?.some(it => it.difficulty === "상") ? "상" : s.items?.some(it => it.difficulty === "중") ? "중" : "하");
+      if(!activeDiffs.includes(sDiff)) return false;
+    }
     if(qbFilter.excludeUsed && usedSet.has(s.id)) return false;
     return true;
     });
@@ -8728,10 +8735,113 @@
     if(!silent) notify(`✅ ${noteText} (기준일: ${day()})`);
   }
 
+  async function fetchQuestionBankFromDrive(silent = false, forceRefresh = false) {
+    const targetUrl = (gasUrl || DEFAULT_GAS_URL || "").trim();
+    if(!targetUrl) {
+    if(!silent) setError("구글 앱스 스크립트 웹 앱 URL이 설정되지 않았습니다.");
+    return;
+    }
+    setBusy("구글 드라이브 '기출문제_창고' 폴더에서 기출 세트를 불러오는 중입니다...");
+    setError("");
+    try {
+    const sep = targetUrl.includes("?") ? "&" : "?";
+    const refreshParam = (!silent || forceRefresh) ? "&refresh=true" : "";
+    const r = await fetch(`${targetUrl}${sep}action=questionBank${refreshParam}&t=${Date.now()}`, { method: "GET", redirect: "follow" });
+    if(!r.ok) throw Error(`드라이브 서버 응답 오류 (HTTP ${r.status})`);
+    const v = await r.json();
+    if(v.error) throw Error(v.error);
+    if(!Array.isArray(v.sets)) throw Error("기출문제 목록 형식이 올바르지 않습니다. GAS 새 버전 배포를 확인하세요.");
+
+    const normalizedSets = v.sets
+      .filter(s => isObj(s) && Array.isArray(s.items) && s.items.length > 0)
+      .map((s, idx) => {
+      const items = s.items.map((it, qi) => ({
+        id: String(it.id || `q-${idx}-${qi}`),
+        itemCode: String(it.itemCode || ""),
+        num: Number(it.num) || (qi + 1),
+        question: String(it.question || ""),
+        box: isText(it.box) ? it.box : "",
+        options: Array.isArray(it.options) && it.options.length >= 4 ? it.options.slice(0, 5) : ["①","②","③","④","⑤"],
+        answer: Math.min(5, Math.max(1, Number(it.answer) || 1)),
+        score: Number(it.score) || 2,
+        difficulty: ["상","중","하"].includes(it.difficulty) ? it.difficulty : "중",
+        explanation: String(it.explanation || "")
+      }));
+      const calcDiff = ["상","중","하"].includes(s.difficulty)
+        ? s.difficulty
+        : (items.some(x => x.difficulty === "상") ? "상" : items.some(x => x.difficulty === "중") ? "중" : "하");
+      const setCode = String(s.code || s.id || `drive-qb-${idx}`);
+      return {
+        id: String(s.id || setCode),
+        code: setCode,
+        year: String(s.year || day().slice(0, 4)),
+        examType: String(s.examType || "기출·모의고사"),
+        grade: String(s.grade || "고1"),
+        subject: String(s.subject || "국어(독서)"),
+        category: String(s.category || "인문"),
+        difficulty: calcDiff,
+        title: String(s.title || `기출 세트 ${idx + 1}`),
+        passage: isText(s.passage) ? s.passage : "",
+        items,
+        createdBy: String(s.createdBy || "기출문제_창고"),
+        createdAt: validDate(s.createdAt) ? s.createdAt : day()
+      };
+      });
+
+    update(d => {
+      const localOnly = (d.questionBank?.sets || []).filter(s => String(s.id || "").startsWith("local-") || String(s.id || "").startsWith("sample-"));
+      const map = new Map();
+      normalizedSets.forEach(s => map.set(s.id, s));
+      localOnly.forEach(s => { if(!map.has(s.id)) map.set(s.id, s); });
+      return {
+      ...d,
+      questionBank: {
+        ...(d.questionBank || { usedHistory: {} }),
+        sets: Array.from(map.values())
+      }
+      };
+    });
+    if(!silent) notify(`'기출문제_창고'에서 총 ${normalizedSets.length}개 기출 세트를 불러왔습니다!`);
+    } catch(e) {
+    if(!silent) setError("기출문제_창고 동기화 실패: " + e.message);
+    } finally {
+    setBusy("");
+    }
+  }
+
+  async function saveQuestionBankJsonToDrive(fileName, setsArr) {
+    const targetUrl = (gasUrl || DEFAULT_GAS_URL || "").trim();
+    if(!targetUrl) { setError("앱스 스크립트 웹 앱 URL을 먼저 확인해 주세요."); return; }
+    setBusy(`'${fileName}' 파일을 구글 드라이브 '기출문제_창고'에 저장하는 중입니다...`);
+    setError("");
+    try {
+    const r = await fetch(targetUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "saveQuestionBank", fileName, sets: setsArr }),
+      redirect: "follow"
+    });
+    if(!r.ok) throw Error(`저장 응답 오류 (HTTP ${r.status})`);
+    const v = await r.json();
+    if(v.error) throw Error(v.error);
+    await fetchQuestionBankFromDrive(true, true);
+    setQbTab("generator");
+    notify(`✅ '${v.fileName}' (${v.count}세트)을 구글 드라이브 '기출문제_창고'에 저장하고 동기화했습니다!`);
+    } catch(e) {
+    setError("드라이브 저장 실패: " + e.message);
+    } finally {
+    setBusy("");
+    }
+  }
+
   useEffect(() => {
     if(loaded && page === "매일 문해력" && gasUrl.trim() && !autoFetchedRef.current) {
     autoFetchedRef.current = true;
     fetchFromDrive(true);
+    }
+    if(loaded && page === "기출 문제은행" && (gasUrl || DEFAULT_GAS_URL).trim() && !qbAutoFetchedRef.current) {
+    qbAutoFetchedRef.current = true;
+    fetchQuestionBankFromDrive(true, false);
     }
     if(loaded && (page === "대입 진학 상담실" || page === "학점제 과목 설계실")){
     const curQuarter = getCurrentQuarterKey();
@@ -8989,6 +9099,10 @@
       const mergedV={
         ...rawV,
         events:[...(rawV.events||[]), ...curSharedEvents.filter(ev=>!personalEvKeys.has(`${ev.date}_${ev.title}`))],
+        questionBank:{
+          sets: curLive.questionBank?.sets || [],
+          usedHistory: rawV.questionBank?.usedHistory || curLive.questionBank?.usedHistory || {}
+        },
         schoolMasterData:curLive.schoolMasterData,
         electiveMatrix:{...(curLive.electiveMatrix||{}), periodSlotMap:rawV.electiveMatrix?.periodSlotMap||curLive.electiveMatrix?.periodSlotMap||{}},
         classAttendance:{
@@ -9668,7 +9782,7 @@
             >
             <Icon className={`h-[16px] w-[16px] shrink-0 ${isCur ? "text-brand stroke-[2.3]" : "text-slate-400"}`}/>
             <span className="truncate">{name}</span>
-            {["과정안·학습지","매일 문해력","기출 문제은행"].includes(name) && (
+            {["과정안·학습지","매일 문해력"].includes(name) && (
               <span className="ml-auto shrink-0 rounded bg-[#f0ecfa] px-1.5 py-0.5 text-[9px] font-bold text-brand">AI</span>
             )}
             </button>
@@ -10549,7 +10663,13 @@
       };
       const availableCats = subjectCategoriesMap[qbFilter.subject] || ["인문","사회","과학","기술","예술","기타"];
 
-      const matchingSets = allSets.filter(s => (qbFilter.subject==="전체" || s.subject===qbFilter.subject) && (qbFilter.categories.length===0 || qbFilter.categories.includes(s.category)));
+      const activeDiffs = Array.isArray(qbFilter.difficulties) ? qbFilter.difficulties : ["상","중","하"];
+      const getSetDiff = s => s.difficulty || (s.items?.some(it => it.difficulty === "상") ? "상" : s.items?.some(it => it.difficulty === "중") ? "중" : "하");
+      const matchingSets = allSets.filter(s =>
+      (qbFilter.subject==="전체" || s.subject===qbFilter.subject) &&
+      (qbFilter.categories.length===0 || qbFilter.categories.includes(s.category)) &&
+      (activeDiffs.length===0 || activeDiffs.includes(getSetDiff(s)))
+      );
       const unusedMatchingSets = matchingSets.filter(s => !usedSet.has(s.id));
 
       return <div className="space-y-6">
@@ -10557,15 +10677,17 @@
         <div className="flex flex-wrap gap-1.5">
         {[
           ["generator","🎲 비중복 랜덤 모의고사 출제기"],
-          ["upload","📄 기출 PDF 업로드 · AI 자동 분해"],
+          ["upload","☁️ 기출문제_창고 연동 · JSON 올리기"],
           ["library",`📚 문제은행 보관소 (${allSets.length}세트 · ${allSets.reduce((a,b)=>a+(b.items?.length||0),0)}문항)`]
         ].map(([k,label])=>(
           <button type="button" key={k} onClick={()=>setQbTab(k)} className={`rounded-lg px-4 py-2 text-xs font-bold transition-colors ${qbTab===k?"bg-brand text-white shadow-sm":"text-slate-600 hover:bg-paper"}`}>{label}</button>
         ))}
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500 px-2">
-        <span>현재 대상: <strong className="text-brand">{qbFilter.targetKey}</strong></span>
-        <span>· 기출제 제외됨: <strong>{usedIdsForTarget.length}세트</strong></span>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 px-1">
+        <span>대상: <strong className="text-brand">{qbFilter.targetKey}</strong> (제외 {usedIdsForTarget.length}세트)</span>
+        <Button primary className="!min-h-[34px] !px-3 !py-1 !text-xs" disabled={!!busy} onClick={()=>fetchQuestionBankFromDrive(false, true)}>
+          <Cloud className="h-3.5 w-3.5"/>기출문제_창고 동기화
+        </Button>
         </div>
       </div>
 
@@ -10607,7 +10729,7 @@
           <div className="flex flex-wrap gap-1.5">
             {availableCats.map(cat => {
             const on = qbFilter.categories.includes(cat);
-            const remCnt = allSets.filter(s => (qbFilter.subject==="전체"||s.subject===qbFilter.subject) && s.category===cat && !usedSet.has(s.id)).length;
+            const remCnt = allSets.filter(s => (qbFilter.subject==="전체"||s.subject===qbFilter.subject) && s.category===cat && (activeDiffs.length===0 || activeDiffs.includes(getSetDiff(s))) && !usedSet.has(s.id)).length;
             return <button type="button" key={cat} onClick={()=>{
               const next = on ? qbFilter.categories.filter(c=>c!==cat) : [...qbFilter.categories, cat];
               setQbFilter({...qbFilter, categories:next});
@@ -10618,7 +10740,25 @@
           </div>
           </div>
 
-          <Field label={`5. 추출할 지문 세트 수 (현재 미출제 가용: ${unusedMatchingSets.length}세트 / 전체 ${matchingSets.length}세트)`} id="qb-count">
+          <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-xs font-semibold">5. 난이도 선택 (상 · 중 · 하)</span>
+            <button type="button" className="text-[11px] text-brand underline" onClick={()=>setQbFilter({...qbFilter,difficulties:activeDiffs.length===3?[]:["상","중","하"]})}>전체 선택/해제</button>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {[["상","🔥 상 (심화)"],["중","📘 중 (표준)"],["하","🌱 하 (기초)"]].map(([lv, lbl]) => {
+            const on = activeDiffs.includes(lv);
+            return <button type="button" key={lv} onClick={()=>{
+              const next = on ? activeDiffs.filter(x=>x!==lv) : [...activeDiffs, lv];
+              setQbFilter({...qbFilter, difficulties:next});
+            }} className={`rounded-lg border py-1.5 text-center text-xs font-bold transition-colors ${on?"border-brand bg-[#eee9fa] text-brand":"border-line bg-white text-slate-500"}`}>
+              {on?"✓ ":""}{lbl}
+            </button>;
+            })}
+          </div>
+          </div>
+
+          <Field label={`6. 추출할 지문 세트 수 (현재 미출제 가용: ${unusedMatchingSets.length}세트 / 전체 ${matchingSets.length}세트)`} id="qb-count">
           <input id="qb-count" type="number" min="1" max="20" className={INPUT} value={qbFilter.setCount} onChange={e=>setQbFilter({...qbFilter,setCount:Number(e.target.value)||1})}/>
           </Field>
 
@@ -10648,7 +10788,7 @@
             <Button className="w-full" onClick={()=>{
             const sampleSets = [
               {
-              id:"sample-kor-hum-1", year:"2026", examType:"6월 모의평가", grade:"고1", subject:"국어(독서)", category:"인문",
+              id:"sample-kor-hum-1", code:"2026-06-G1-RD-HUM-01", year:"2026", examType:"6월 모의평가", grade:"고1", subject:"국어(독서)", category:"인문", difficulty:"상",
               title:"[인문] 공리주의와 의무론의 도덕적 판단 기준",
               passage:"[1] 도덕적 판단의 기준을 결과에서 찾는 공리주의와 달리, 칸트로 대표되는 의무론은 행위의 결과와 무관하게 그 행위가 도덕법칙에 부합하는지 여부를 중시한다.\n[2] 벤담과 밀은 ‘최대 다수의 최대 행복’이라는 유용성의 원리를 제시하며, 행위의 옳고 그름은 그 행위가 산출하는 쾌락과 고통의 총합에 의해 결정된다고 보았다. 반면 칸트는 인간을 단순한 수단이 아니라 동시에 목적으로 대우해야 한다는 정언명령을 제시하였다.",
               items:[
@@ -10658,7 +10798,7 @@
               createdBy:"샘플 데이터", createdAt:day()
               },
               {
-              id:"sample-kor-soc-1", year:"2025", examType:"9월 모의평가", grade:"고1", subject:"국어(독서)", category:"사회",
+              id:"sample-kor-soc-1", code:"2025-09-G1-RD-SOC-01", year:"2025", examType:"9월 모의평가", grade:"고1", subject:"국어(독서)", category:"사회", difficulty:"하",
               title:"[사회] 기준금리 변동과 통화정책의 파급 경로",
               passage:"[1] 중앙은행은 물가 안정과 금융 안정을 달성하기 위해 기준금리를 조정하는 통화정책을 수행한다. 기준금리가 인상되면 시중 은행의 예금 및 대출 금리가 상승하여 가계의 소비와 기업의 투자가 둔화되고, 이는 총수요를 억제하여 물가 상승 압력을 낮추는 효과를 낸다.\n[2] 반대로 경기 침체기에는 중앙은행이 기준금리를 인하하여 시중 유동성을 공급하고 총수요를 진작시킨다.",
               items:[
@@ -10706,9 +10846,11 @@
             {generatedPaper.sets.map((s, sIdx) => (
             <article key={s.id} className="rounded-xl border border-line bg-paper/50 p-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Tag>세트 {sIdx+1}</Tag>
                 <span className="text-xs font-bold text-brand">[{s.subject} · {s.category}]</span>
+                <span className={`rounded px-1.5 py-0.5 text-[10.5px] font-extrabold ${getSetDiff(s)==="상"?"bg-red-100 text-red-700":getSetDiff(s)==="중"?"bg-blue-100 text-blue-700":"bg-emerald-100 text-emerald-700"}`}>난이도 {getSetDiff(s)}</span>
+                {s.code && <span className="rounded bg-white border border-line px-1.5 py-0.5 font-mono text-[10px] text-slate-500">{s.code}</span>}
                 <span className="text-xs font-semibold text-ink">{s.title}</span>
                 <span className="text-[11px] text-slate-400">({s.year} {s.examType})</span>
               </div>
@@ -10735,7 +10877,7 @@
             ))}
           </div>
           </> : (
-          <Empty>좌측에서 과목과 영역을 선택한 뒤 [🎲 미출제 풀에서 비중복 랜덤 시험지 생성] 버튼을 눌러주세요.</Empty>
+          <Empty>좌측에서 과목과 영역·난이도를 선택한 뒤 [🎲 미출제 풀에서 비중복 랜덤 시험지 생성] 버튼을 눌러주세요.</Empty>
           )}
         </section>
         </div>
@@ -10744,39 +10886,66 @@
       {qbTab === "upload" && (
         <section className={`${PANEL} p-6 max-w-3xl mx-auto space-y-5`}>
         <div>
-          <Tag>Gemini Vision AI 기출 PDF 자동 분해 엔진</Tag>
-          <h2 className="mt-2 text-lg font-bold text-ink">📄 수능 · 평가원 · 교육청 모의고사 PDF 업로드 및 DB화</h2>
-          <p className="mt-1 text-xs leading-6 text-slate-500">기출 시험지 PDF를 올리면 AI가 지문 세트(독서·문학 지문 공유형)와 5지선다 문항, &lt;보기&gt; 박스, 영역 분류(인문·사회·과학·기술·예술 등), 정답 및 해설까지 자동으로 쪼개어 문제은행에 저장합니다.</p>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-5">
-          <Field label="시행 연도" id="qbm-year"><input id="qbm-year" className={INPUT} value={qbMeta.year} onChange={e=>setQbMeta({...qbMeta,year:e.target.value})}/></Field>
-          <Field label="시험 종류" id="qbm-type"><input id="qbm-type" className={INPUT} value={qbMeta.examType} onChange={e=>setQbMeta({...qbMeta,examType:e.target.value})} placeholder="6월 모의평가"/></Field>
-          <Field label="대상 학년" id="qbm-grade">
-          <select id="qbm-grade" className={INPUT} value={qbMeta.grade} onChange={e=>setQbMeta({...qbMeta,grade:e.target.value})}>
-            {["고1","고2","고3"].map(g=><option key={g} value={g}>{g}</option>)}
-          </select>
-          </Field>
-          <Field label="교과 분류" id="qbm-subj">
-          <select id="qbm-subj" className={INPUT} value={qbMeta.subject} onChange={e=>setQbMeta({...qbMeta,subject:e.target.value})}>
-            {Object.keys(subjectCategoriesMap).map(k=><option key={k} value={k}>{k}</option>)}
-          </select>
-          </Field>
-          <Field label="기본 세부영역" id="qbm-cat"><input id="qbm-cat" className={INPUT} value={qbMeta.defaultCategory} onChange={e=>setQbMeta({...qbMeta,defaultCategory:e.target.value})} placeholder="AI 자동분류"/></Field>
+          <Tag><Folder className="h-3.5 w-3.5"/>API 키 불필요 · 구글 드라이브 '기출문제_창고' 자동 연동</Tag>
+          <h2 className="mt-2 text-lg font-bold text-ink">☁️ 기출문제_창고 JSON 업로드 및 드라이브 동기화</h2>
+          <p className="mt-1 text-xs leading-6 text-slate-600">
+          Gemini에서 모의고사 문제지·답안지 PDF로 변환한 <strong><code>.json</code> 파일</strong>을 아래 버튼으로 올리면 구글 드라이브 <code>기출문제_창고</code> 폴더에 즉시 저장되어 전 교사가 API 키 없이 시험지를 출제할 수 있습니다.
+          </p>
         </div>
 
         <div className="rounded-xl border-2 border-dashed border-brand bg-[#faf8fe] p-6 text-center space-y-3">
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-brand px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#54419f]">
-          <Upload className="h-4 w-4"/>기출문제 PDF 파일 선택 (최대 15MB)
-          <input type="file" accept=".pdf,application/pdf" className="hidden" onChange={e=>readQuestionBankPDF(e.target.files?.[0])}/>
+          <label className={`inline-flex cursor-pointer items-center gap-2 rounded-xl bg-brand px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#54419f] ${busy ? "opacity-50 pointer-events-none" : ""}`}>
+          <Upload className="h-4 w-4"/>변환한 기출 .json 파일 선택 ➔ 드라이브 창고에 바로 저장
+          <input type="file" accept=".json,application/json" disabled={!!busy} className="hidden" onChange={async e=>{
+            const f = e.target.files?.[0]; e.target.value = ""; if(!f) return;
+            try {
+            const raw = JSON.parse(await f.text());
+            const arr = Array.isArray(raw) ? raw : (Array.isArray(raw.sets) ? raw.sets : [raw]);
+            const validSets = arr.filter(s => isObj(s) && Array.isArray(s.items) && s.items.length > 0);
+            if(!validSets.length) throw Error("유효한 기출 세트(sets / items)가 들어 있지 않은 JSON입니다.");
+            await saveQuestionBankJsonToDrive(f.name, validSets);
+            } catch(err) { notify("JSON 파일 오류: " + err.message); }
+          }}/>
           </label>
-          <p className="text-xs text-slate-500">💡 팁: 한 번에 너무 많은 페이지보다 지문 1~4개가 담긴 PDF(2~6쪽 분량)로 올리시면 문항 누락 없이 가장 정확하게 분해됩니다.</p>
-          {qbPdf && <p className="text-sm font-bold text-brand">📎 선택된 파일: {qbPdf.name}</p>}
+          <p className="text-xs text-slate-500">
+          💡 구글 드라이브 <code>기출문제_창고</code> 폴더에 직접 파일을 넣어두신 경우 아래 <strong>[지금 동기화]</strong> 버튼만 누르시면 됩니다. (하위 폴더 포함 자동 인식)
+          </p>
         </div>
 
-        <Button primary disabled={!!busy || !qbPdf} className="w-full !min-h-[48px] !text-sm" onClick={runExtractQuestionBankPDF}>
-          <Sparkles className="h-4 w-4"/>AI 기출 지문·문항 자동 추출 및 학교 문제은행 적재 시작
-        </Button>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-paper p-4 text-xs">
+          <div className="space-y-0.5">
+          <p className="font-bold text-ink">분류코드 표준 형식: <code className="text-brand">2026-06-G1-RD-HUM-01</code></p>
+          <p className="text-slate-500">연도-월-학년-영역(RD/LT/HW/EM/LE/ET)-세부분류-순번 · 난이도(상/중/하)</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+          <Button primary disabled={!!busy} onClick={()=>fetchQuestionBankFromDrive(false, true)}><Cloud className="h-4 w-4"/>지금 동기화</Button>
+          <Button onClick={()=>download("기출문제_표준양식.json", JSON.stringify({
+            sets:[{
+            id:"2026-06-G1-RD-HUM-01",
+            code:"2026-06-G1-RD-HUM-01",
+            year:"2026",
+            examType:"6월 학력평가",
+            grade:"고1",
+            subject:"국어(독서)",
+            category:"인문",
+            difficulty:"상",
+            title:"지문 핵심 제목",
+            passage:"[1] 지문 본문...",
+            items:[{
+              itemCode:"2026-06-G1-RD-HUM-01-Q04-H",
+              num:4,
+              question:"윗글에 대한 이해로 가장 적절한 것은?",
+              box:"",
+              options:["① ...","② ...","③ ...","④ ...","⑤ ..."],
+              answer:1,
+              score:3,
+              difficulty:"상",
+              explanation:"정답 및 오답 해설"
+            }]
+            }]
+          }, null, 2), "application/json")}><Download className="h-4 w-4"/>표준 JSON 예시 받기</Button>
+          </div>
+        </div>
         </section>
       )}
 
@@ -10788,16 +10957,21 @@
           <p className="text-xs text-slate-500">이미 출제된 문제라도 복습·기말고사 대비를 위해 [수동 포함 체크]를 켜두면 다음 시험지에 강제로 포함할 수 있습니다.</p>
           </div>
           <div className="flex gap-2">
-          <Button onClick={()=>download(`기출문제은행_${day()}.json`, JSON.stringify(allSets, null, 2), "application/json")}><Download className="h-4 w-4"/>문제은행 JSON 백업</Button>
+          <Button onClick={()=>download(`기출문제은행_${day()}.json`, JSON.stringify({ sets: allSets }, null, 2), "application/json")}><Download className="h-4 w-4"/>문제은행 JSON 백업</Button>
           <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-[#dcd3ee] bg-white px-3.5 py-2 text-xs font-semibold text-[#493b7a] hover:bg-[#f4f1fa]">
-            <Upload className="h-4 w-4"/>문제은행 JSON 불러오기
+            <Upload className="h-4 w-4"/>로컬 JSON 불러오기
             <input type="file" accept=".json,application/json" className="hidden" onChange={async e=>{
             const f = e.target.files?.[0]; e.target.value = ""; if(!f) return;
             try {
-              const imported = JSON.parse(await f.text());
-              if(!Array.isArray(imported)) throw Error("올바른 문제은행 배열 형식이 아닙니다.");
-              update(d => ({...d, questionBank:{...(d.questionBank||{}), sets:[...imported, ...(d.questionBank?.sets||[])]}}));
-              notify(`${imported.length}개 세트를 문제은행에 추가했습니다.`);
+              const raw = JSON.parse(await f.text());
+              const imported = Array.isArray(raw) ? raw : (Array.isArray(raw?.sets) ? raw.sets : [raw]);
+              const cleaned = imported.filter(s => isObj(s) && Array.isArray(s.items) && s.items.length > 0).map((s, i) => ({
+              ...s,
+              id: s.id || `local-qb-${Date.now()}-${i}`
+              }));
+              if(!cleaned.length) throw Error("유효한 기출 세트(sets / items)가 들어 있지 않은 JSON입니다.");
+              update(d => ({...d, questionBank:{...(d.questionBank||{}), sets:[...cleaned, ...(d.questionBank?.sets||[])]}}));
+              notify(`${cleaned.length}개 세트를 문제은행에 추가했습니다.`);
             } catch(err) { notify(err.message); }
             }}/>
           </label>
@@ -10814,6 +10988,8 @@
               <div className="flex flex-wrap items-center gap-2">
               <Tag>{s.subject}</Tag>
               <Tag>{s.category}</Tag>
+              <span className={`rounded px-2 py-0.5 text-[11px] font-extrabold ${getSetDiff(s)==="상"?"bg-red-100 text-red-700":getSetDiff(s)==="중"?"bg-blue-100 text-blue-700":"bg-emerald-100 text-emerald-700"}`}>난이도 {getSetDiff(s)}</span>
+              {s.code && <span className="rounded bg-paper border border-line px-2 py-0.5 font-mono text-[10.5px] font-bold text-slate-600">{s.code}</span>}
               <span className="text-xs text-slate-500">{s.year} · {s.examType} · {s.grade}</span>
               {isUsed ? (
                 <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">출제 완료됨 ({qbFilter.targetKey})</span>
@@ -10856,7 +11032,7 @@
           })}
           </div>
         ) : (
-          <Empty>아직 적재된 기출문제가 없습니다. [기출 PDF 업로드 · AI 자동 분해] 탭에서 PDF를 올리거나 샘플 문제를 불러오세요.</Empty>
+          <Empty>아직 적재된 기출문제가 없습니다. [☁️ 기출문제_창고 연동 · JSON 올리기] 탭에서 JSON을 올리거나 동기화 버튼을 눌러주세요.</Empty>
         )}
         </section>
       )}
